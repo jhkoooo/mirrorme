@@ -83,6 +83,15 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 14. 작업 폴더 위치 갱신 — `C:\GitHub\mirrorme\`
+**프롬프트**: "길 2로 했고 clone경로는 C:\GitHub\mirrorme 여기야 인지하고있어"
+**수정 파일**:
+- `CLAUDE.md` (환경 섹션에 새 작업 폴더 명시)
+- `.claude-memory/project_mirrorme.md` (백업 사본)
+- `.claude-memory/feedback_mirrorme_changelog.md` (백업 사본)
+- 메모리 원본: `project_mirrorme.md`, `feedback_mirrorme_changelog.md`
+**내용**: GitHub Desktop으로 저장소를 `C:\GitHub\mirrorme\`에 클론. 앞으로 모든 작업·git push가 이곳에서 이뤄짐. 옛 폴더 `C:\Users\koo\Desktop\MirrorMe\`는 백업/참조용. 메모리·CLAUDE.md·백업 사본 모두 새 경로로 갱신.
+
 ### 13. v3.0 — OOTD 기능 본격 도입
 **프롬프트**: "Q1.그대로진행 / Q2. A / Q3. 동의 / Q4. B / Q5. 만족도별 1~5는 빼자 별로 필요없을거같아, 아이폰처럼 사진목록에서 하트로 관리하는것처럼 눈에띄게만 해주면 될거같아 / Q6. 사진찍은게 없고 주변에 공유도 안했기 때문에 그대로 처리하면 될거같아 / 그리고 전체적인 디자인은 너가 판단해서 깔끔하고 UI편하게 해주고, 앱 IMG도 현재사용하는게 아닌 OOTD관련 앱IMG처럼 바꿔줘 / 진행해줘"
 **수정/생성 파일**:

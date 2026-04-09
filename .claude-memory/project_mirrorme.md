@@ -10,8 +10,10 @@ type: project
 - 아이폰 앱, 개인 사용 전용 (배포 X)
 - 앱 실행 시 전면(셀카) 카메라가 켜짐
 - iOS 기본 셀카는 거울처럼 좌우반전되어 보이는데, 이 앱은 **반전을 해제**해서 "상대방이 보는 내 모습"으로 보여줌 (일반 거울이 아닌 "진짜 거울")
-- 프로젝트 위치: `C:\Users\koo\Desktop\MirrorMe\`
-- 진행 기록 파일: `C:\Users\koo\Desktop\MirrorMe\PROJECT.md`
+- **현재 작업 폴더**: `C:\GitHub\mirrorme\` (GitHub Desktop으로 클론된 git 저장소, 실제 작업과 push가 이뤄지는 곳)
+- 옛 폴더: `C:\Users\koo\Desktop\MirrorMe\` (이전에 작업하던 백업 위치, 향후 정리/삭제 가능)
+- 진행 기록 파일: `C:\GitHub\mirrorme\PROJECT.md`
+- 변경 이력: `C:\GitHub\mirrorme\CHANGES.md`
 
 **향후 계획 (로드맵):**
 - v2 (완료): 무음 사진 촬영 + IndexedDB 저장 + 앱 내 갤러리

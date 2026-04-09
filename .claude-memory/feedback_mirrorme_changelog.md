@@ -4,7 +4,7 @@ description: MirrorMe 프로젝트에서 코드/파일을 수정하는 작업을
 type: feedback
 ---
 
-`C:\Users\koo\Desktop\MirrorMe\` 프로젝트에서 작업할 때, **사용자 프롬프트로 인해 실제 파일이 수정·생성된 경우** 반드시 `C:\Users\koo\Desktop\MirrorMe\CHANGES.md`에 항목을 추가한다.
+`C:\GitHub\mirrorme\` 프로젝트(MirrorMe)에서 작업할 때, **사용자 프롬프트로 인해 실제 파일이 수정·생성된 경우** 반드시 `C:\GitHub\mirrorme\CHANGES.md`에 항목을 추가한다. (옛 위치 `C:\Users\koo\Desktop\MirrorMe\`는 백업/참조용)
 
 **Why:** 사용자가 어떤 지시로 어떤 변경이 일어났는지 시간순으로 추적하고 싶다고 명시적으로 요청함 (2026-04-09). PROJECT.md는 "현재 상태"를 보여주는 문서이고, CHANGES.md는 "왜 이렇게 됐는지(프롬프트→변경)"의 이력 문서로 분리.
 

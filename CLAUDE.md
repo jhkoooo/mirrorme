@@ -27,7 +27,10 @@
 - v1, v2처럼 작은 단계로 끊어가며 진행.
 
 ### 환경
-- 사용자 PC: **Windows** (`C:\Users\koo\Desktop\MirrorMe\`)
+- 사용자 PC: **Windows**
+- **현재 작업 폴더 (실제 작업·git 푸시용)**: `C:\GitHub\mirrorme\` ← 여기서만 작업
+- 옛 작업 폴더 (백업/참조용): `C:\Users\koo\Desktop\MirrorMe\` (필요 없으면 삭제 가능)
+- GitHub Desktop으로 클론된 폴더 = 작업 폴더. 변경 → Commit → Push가 GitHub Desktop으로 처리됨
 - iOS 네이티브 빌드 불가 → 현재는 PWA로 운영
 - GitHub Pages에 호스팅 중 (`https://jhkoooo.github.io/mirrorme/`)
 - 접속 통계: GoatCounter (`https://mirrorme.goatcounter.com`)
