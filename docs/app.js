@@ -469,6 +469,12 @@ function closeGallery() {
   // 카메라 컨트롤 복원
   controls.classList.remove('hidden');
   updateCaptureHint();
+  // 갤러리에 가려져 있는 동안 iOS Safari가 video를 자동 일시정지했을 수 있음 → 재생 재개
+  if (video.srcObject && video.paused) {
+    video.play().catch(() => {});
+  }
+  // 썸네일도 한 번 더 동기화 (갤러리 안에서 삭제 등이 일어났을 수 있음)
+  updateGalleryBtnThumb();
 }
 
 async function renderGallery() {
