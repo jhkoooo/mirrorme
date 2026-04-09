@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>MirrorMe</title>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MirrorMe" />
+  <meta name="theme-color" content="#000000" />
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="icon" href="icon-192.png" />
+
+  <style>
+    /* ---- 공통 ---- */
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+      touch-action: none;
+      font-family: -apple-system, system-ui, sans-serif;
+      color: #fff;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ---- 카메라 영상 ---- */
+    #video {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      background: #000;
+      transform-origin: center center;
+      transition: transform 60ms linear;
+    }
+
+    /* ---- 줌 배지 ---- */
+    #zoomBadge {
+      position: fixed;
+      top: calc(env(safe-area-inset-top, 0px) + 14px);
+      left: 50%; transform: translateX(-50%);
+      padding: 6px 14px;
+      background: rgba(0,0,0,0.55);
+      font: 600 14px -apple-system, system-ui, sans-serif;
+      border-radius: 999px;
+      opacity: 0; transition: opacity 250ms ease;
+      pointer-events: none;
+    }
+    #zoomBadge.visible { opacity: 1; }
+
+
+    /* ---- 하단 컨트롤 ---- */
+    #controls {
+      position: fixed;
+      left: 0; right: 0;
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      pointer-events: none;
+    }
+
+    .ctrlBtn {
+      pointer-events: auto;
+      width: 48px; height: 48px;
+      border-radius: 50%; border: 0;
+      background: rgba(255,255,255,0.18);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+    }
+    .ctrlBtn:active { transform: scale(0.92); background: rgba(255,255,255,0.30); }
+    .ctrlBtn svg { width: 24px; height: 24px; }
+
+    /* 갤러리 버튼: 마지막 사진 썸네일 표시 */
+    #galleryBtn {
+      border-radius: 10px;
+      overflow: hidden;
+      padding: 0;
+    }
+    #galleryBtn img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* 셔터 버튼 */
+    #shutterBtn {
+      pointer-events: auto;
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      border: 4px solid rgba(255,255,255,0.8);
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+      position: relative;
+    }
+    #shutterBtn::after {
+      content: '';
+      position: absolute;
+      inset: 5px;
+      border-radius: 50%;
+      background: #fff;
+    }
+    #shutterBtn:active { transform: scale(0.93); }
+    #shutterBtn:active::after { background: #ddd; }
+
+    /* ---- 시작 오버레이 ---- */
+    #overlay {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; padding: 24px;
+      pointer-events: none;
+    }
+    #overlay .box {
+      background: rgba(0,0,0,0.6);
+      padding: 20px 24px; border-radius: 14px;
+      max-width: 320px; pointer-events: auto;
+    }
+    #overlay h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+    #overlay p { margin: 0 0 14px; font-size: 14px; opacity: 0.85; line-height: 1.5; }
+    #startBtn {
+      appearance: none; border: 0;
+      background: #fff; color: #000;
+      font-weight: 600; font-size: 15px;
+      padding: 12px 22px; border-radius: 999px;
+    }
+    #startBtn:active { opacity: 0.7; }
+
+    /* ---- 갤러리 화면 ---- */
+    #gallery {
+      position: fixed; inset: 0;
+      background: #000;
+      z-index: 100;
+      display: flex; flex-direction: column;
+      touch-action: pan-y;
+    }
+    #galleryHeader {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px;
+      font-weight: 600; font-size: 17px;
+      flex-shrink: 0;
+    }
+    #galleryHeader button {
+      background: none; border: 0; color: #fff;
+      font-size: 17px; font-weight: 600; padding: 6px 10px;
+    }
+
+    /* 탭 (MyFace / MyStyle) */
+    #galleryTabs {
+      display: flex;
+      gap: 8px;
+      padding: 4px 16px 12px;
+      flex-shrink: 0;
+    }
+    .tabBtn {
+      flex: 1;
+      background: rgba(255,255,255,0.10);
+      border: 0;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 0;
+      border-radius: 10px;
+      letter-spacing: 0.3px;
+    }
+    .tabBtn.active {
+      background: #fff;
+      color: #000;
+    }
+    .tabBtn:active { opacity: 0.8; }
+    #galleryGrid {
+      flex: 1; overflow-y: auto;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      padding: 2px;
+      -webkit-overflow-scrolling: touch;
+    }
+    #galleryGrid .thumb {
+      aspect-ratio: 1;
+      overflow: hidden;
+      background: #111;
+    }
+    #galleryGrid .thumb img {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    #galleryEmpty {
+      flex: 1;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; opacity: 0.5;
+    }
+
+    /* ---- 사진 상세 화면 ---- */
+    #photoView {
+      position: fixed; inset: 0;
+      background: #000;
+      z-index: 200;
+      display: flex; flex-direction: column;
+    }
+    #photoViewImg {
+      flex: 1;
+      object-fit: contain;
+      width: 100%;
+      min-height: 0;
+    }
+    #photoViewBar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px calc(env(safe-area-inset-bottom, 0px) + 12px);
+      flex-shrink: 0;
+    }
+    #photoViewBar button {
+      background: none; border: 0; color: #fff;
+      font-size: 15px; padding: 8px 14px;
+    }
+    #photoViewBar .danger { color: #ff453a; }
+    #photoViewDate {
+      font-size: 13px; opacity: 0.6;
+      text-align: center;
+      padding: 8px 0 0;
+    }
+  </style>
+</head>
+<body>
+  <!-- 카메라 -->
+  <video id="video" autoplay playsinline muted></video>
+  <div id="zoomBadge">1.0×</div>
+
+  <!-- 하단 컨트롤 -->
+  <div id="controls" class="hidden">
+    <!-- 갤러리 -->
+    <button id="galleryBtn" class="ctrlBtn" aria-label="앨범">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+        <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+      </svg>
+    </button>
+
+    <!-- 셔터 -->
+    <button id="shutterBtn" aria-label="촬영"></button>
+
+    <!-- 카메라 전환 -->
+    <button id="flipBtn" class="ctrlBtn" aria-label="카메라 전환">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 4h-3.2l-1.6-2H8.8L7.2 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/>
+        <path d="M9 13a3 3 0 1 0 3-3"/><path d="M12 7v3l2-1"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- 시작 화면 -->
+  <div id="overlay">
+    <div class="box">
+      <h1>MirrorMe</h1>
+      <p>상대방이 보는 내 모습을 그대로 보여줍니다.<br/>시작하려면 카메라 권한을 허용해 주세요.</p>
+      <button id="startBtn">시작하기</button>
+    </div>
+  </div>
+
+  <!-- 갤러리 -->
+  <div id="gallery" class="hidden">
+    <div id="galleryHeader">
+      <button id="galleryClose">← 돌아가기</button>
+      <span>앨범</span>
+      <span id="photoCount"></span>
+    </div>
+    <div id="galleryTabs">
+      <button class="tabBtn active" data-tab="user">MyFace</button>
+      <button class="tabBtn" data-tab="environment">MyStyle</button>
+    </div>
+    <div id="galleryGrid"></div>
+    <div id="galleryEmpty" class="hidden">아직 촬영한 사진이 없습니다.</div>
+  </div>
+
+  <!-- 사진 상세 -->
+  <div id="photoView" class="hidden">
+    <div id="photoViewDate"></div>
+    <img id="photoViewImg" />
+    <div id="photoViewBar">
+      <button id="photoBack">← 돌아가기</button>
+      <button id="photoDownload">다운로드</button>
+      <button id="photoDelete" class="danger">삭제</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script data-goatcounter="https://mirrorme.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+</body>
+</html>
