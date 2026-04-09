@@ -414,12 +414,30 @@ function normalizePhoto(p) {
 // ============================================================
 //  갤러리 버튼 썸네일
 // ============================================================
+// 갤러리 버튼 기본 아이콘 (사진 0장일 때 복원용)
+const GALLERY_BTN_DEFAULT_HTML =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>' +
+  '<rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>' +
+  '</svg>';
+
+function revokeGalleryBtnThumbUrl() {
+  const oldImg = galleryBtn.querySelector('img');
+  if (oldImg && oldImg.src.startsWith('blob:')) {
+    URL.revokeObjectURL(oldImg.src);
+  }
+}
+
 async function updateGalleryBtnThumb() {
   try {
     const latest = await getLatestPhoto();
+    revokeGalleryBtnThumbUrl();
     if (latest && latest.blob) {
       const url = URL.createObjectURL(latest.blob);
       galleryBtn.innerHTML = '<img src="' + url + '" alt="최근 사진" />';
+    } else {
+      // 사진이 한 장도 없으면 기본 아이콘으로 복원
+      galleryBtn.innerHTML = GALLERY_BTN_DEFAULT_HTML;
     }
   } catch (e) {
     console.error('썸네일 업데이트 실패:', e);
@@ -433,6 +451,10 @@ galleryBtn.addEventListener('click', openGallery);
 galleryClose.addEventListener('click', closeGallery);
 
 async function openGallery() {
+  // 갤러리가 떠 있는 동안 카메라 컨트롤·안내 문구는 가려둠
+  // (stacking context 문제로 클릭이 가로채지는 것 방지 + UX 정리)
+  controls.classList.add('hidden');
+  captureHint.classList.add('hidden');
   gallery.classList.remove('hidden');
   await renderGallery();
 }
@@ -444,6 +466,9 @@ function closeGallery() {
     if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
   });
   galleryBody.innerHTML = '';
+  // 카메라 컨트롤 복원
+  controls.classList.remove('hidden');
+  updateCaptureHint();
 }
 
 async function renderGallery() {
