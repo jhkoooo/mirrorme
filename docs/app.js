@@ -578,6 +578,14 @@ async function openPhotoView(id) {
   photoMemoInput.value = photo.memo || '';
   photoFav.classList.toggle('active', !!photo.favorite);
   renderTags();
+
+  // MyFace(셀카)는 메모/카테고리 영역 숨김 — 얼굴/머리 기록 전용
+  // OOTD(후면)일 때만 메모와 카테고리 입력 표시
+  const isFace = photo.facing === 'user';
+  photoMemoInput.classList.toggle('hidden', isFace);
+  photoTagsArea.classList.toggle('hidden', isFace);
+  addCategoryBtn.classList.toggle('hidden', isFace);
+
   photoView.classList.remove('hidden');
 }
 
@@ -586,6 +594,10 @@ function closePhotoView() {
   if (photoViewImg.src.startsWith('blob:')) URL.revokeObjectURL(photoViewImg.src);
   photoViewImg.src = '';
   currentViewingPhoto = null;
+  // 갤러리가 떠 있으면 변경사항(하트, 메모 등)을 즉시 반영
+  if (!gallery.classList.contains('hidden')) {
+    renderGallery();
+  }
 }
 
 photoBack.addEventListener('click', () => {
