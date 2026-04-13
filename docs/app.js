@@ -32,16 +32,24 @@ const galleryBody   = document.getElementById('galleryBody');
 const galleryEmpty  = document.getElementById('galleryEmpty');
 const photoCount    = document.getElementById('photoCount');
 
-const photoView      = document.getElementById('photoView');
-const photoViewImg   = document.getElementById('photoViewImg');
-const photoViewDate  = document.getElementById('photoViewDate');
-const photoBack      = document.getElementById('photoBack');
-const photoDelete    = document.getElementById('photoDelete');
-const photoDownload  = document.getElementById('photoDownload');
-const photoFav       = document.getElementById('photoFav');
-const photoMemoInput = document.getElementById('photoMemoInput');
-const photoTagsArea  = document.getElementById('photoTagsArea');
-const addCategoryBtn = document.getElementById('addCategoryBtn');
+const photoView       = document.getElementById('photoView');
+const photoViewImgWrap= document.getElementById('photoViewImgWrap');
+const photoViewTopBar = document.getElementById('photoViewTopBar');
+const photoViewInfo   = document.getElementById('photoViewInfo');
+const photoViewDate   = document.getElementById('photoViewDate');
+const photoBack       = document.getElementById('photoBack');
+const photoDelete     = document.getElementById('photoDelete');
+const photoDownload   = document.getElementById('photoDownload');
+const photoFav        = document.getElementById('photoFav');
+const photoMemoInput  = document.getElementById('photoMemoInput');
+const photoTagsArea   = document.getElementById('photoTagsArea');
+const addCategoryBtn  = document.getElementById('addCategoryBtn');
+
+// 3-슬라이드 img 요소 (이전/현재/다음)
+const photoSlidePrev = document.querySelector('.photoSlide[data-role="prev"]');
+const photoSlideCurr = document.querySelector('.photoSlide[data-role="curr"]');
+const photoSlideNext = document.querySelector('.photoSlide[data-role="next"]');
+const photoSlides    = [photoSlidePrev, photoSlideCurr, photoSlideNext];
 
 const categoryMenu       = document.getElementById('categoryMenu');
 const categoryMenuCancel = document.getElementById('categoryMenuCancel');
@@ -617,10 +625,60 @@ document.addEventListener('click', (e) => {
 });
 
 // ============================================================
-//  사진 상세 화면
+//  사진 상세 화면 (v3.2 풀화면 + 드래그 슬라이드)
 // ============================================================
+let barsVisible = true;           // 상단/하단 바 토글 상태
+
+// 3-슬라이드 레이아웃 적용 (offset = 가로 드래그 픽셀 값)
+function setSlideTransforms(offsetX, withTransition) {
+  const w = window.innerWidth;
+  const tr = withTransition
+    ? 'transform 260ms cubic-bezier(0.22, 0.8, 0.3, 1)'
+    : 'none';
+  photoSlidePrev.style.transition = tr;
+  photoSlideCurr.style.transition = tr;
+  photoSlideNext.style.transition = tr;
+  photoSlidePrev.style.transform = 'translateX(' + (-w + offsetX) + 'px)';
+  photoSlideCurr.style.transform = 'translateX(' + offsetX + 'px)';
+  photoSlideNext.style.transform = 'translateX(' + (w + offsetX) + 'px)';
+}
+
+// photoViewIndex 기준으로 3개 슬라이드의 이미지·상태를 갱신
+function renderCurrentSlide() {
+  const curr = photoViewList[photoViewIndex];
+  const prev = photoViewList[photoViewIndex - 1];
+  const next = photoViewList[photoViewIndex + 1];
+
+  photoSlideCurr.src = curr ? getPhotoUrl(curr) : '';
+  photoSlidePrev.src = prev ? getPhotoUrl(prev) : '';
+  photoSlideNext.src = next ? getPhotoUrl(next) : '';
+
+  // 레이아웃은 transition 없이 제자리로
+  setSlideTransforms(0, false);
+
+  currentViewingPhoto = curr || null;
+  if (!curr) return;
+
+  photoViewDate.textContent = formatDate(curr.timestamp);
+  photoMemoInput.value = curr.memo || '';
+  photoFav.classList.toggle('active', !!curr.favorite);
+  renderTags();
+
+  // MyFace(셀카)는 info 패널 자체를 숨김, OOTD는 내부 항목 모두 표시
+  const isFace = curr.facing === 'user';
+  photoViewInfo.classList.toggle('hidden', isFace);
+  photoMemoInput.classList.toggle('hidden', isFace);
+  photoTagsArea.classList.toggle('hidden', isFace);
+  addCategoryBtn.classList.toggle('hidden', isFace);
+
+  // 바 가시성 상태 재적용 (MyFace면 info는 hidden이라 hidden-soft 안 붙임)
+  photoViewTopBar.classList.toggle('hidden-soft', !barsVisible);
+  if (!isFace) {
+    photoViewInfo.classList.toggle('hidden-soft', !barsVisible);
+  }
+}
+
 async function openPhotoView(id) {
-  // 현재 탭의 사진 리스트를 미리 준비 → 스와이프로 이전/다음 이동 가능
   const all = (await getAllPhotos()).map(normalizePhoto);
   photoViewList = all
     .filter(p => p.facing === currentTab)
@@ -628,39 +686,39 @@ async function openPhotoView(id) {
   photoViewIndex = photoViewList.findIndex(p => p.id === id);
   if (photoViewIndex === -1) return;
 
-  showPhotoAtIndex(photoViewIndex);
+  // 바 초기 가시 상태
+  barsVisible = true;
+  photoViewTopBar.classList.remove('hidden-soft');
+  photoViewInfo.classList.remove('hidden-soft');
+
+  renderCurrentSlide();
   photoView.classList.remove('hidden');
-}
-
-function showPhotoAtIndex(i) {
-  const photo = photoViewList[i];
-  if (!photo) return;
-  currentViewingPhoto = photo;
-  photoViewImg.src = getPhotoUrl(photo);
-  photoViewDate.textContent = formatDate(photo.timestamp);
-  photoMemoInput.value = photo.memo || '';
-  photoFav.classList.toggle('active', !!photo.favorite);
-  renderTags();
-
-  // MyFace(셀카)는 메모/카테고리 영역 숨김 — 얼굴/머리 기록 전용
-  const isFace = photo.facing === 'user';
-  photoMemoInput.classList.toggle('hidden', isFace);
-  photoTagsArea.classList.toggle('hidden', isFace);
-  addCategoryBtn.classList.toggle('hidden', isFace);
 }
 
 async function closePhotoView() {
   photoView.classList.add('hidden');
-  photoViewImg.src = '';
+  photoView.style.transform = '';
+  photoView.style.opacity = '';
+  photoView.style.transition = '';
+  photoSlidePrev.src = '';
+  photoSlideCurr.src = '';
+  photoSlideNext.src = '';
   currentViewingPhoto = null;
   photoViewList = [];
   photoViewIndex = 0;
-  // 갤러리가 떠 있으면 pending 쓰기 완료 후 변경사항을 반영
-  // (race condition 방지: 쓰기 끝나기 전 read하면 옛 값을 가져와서
-  //  하트 취소한 게 갤러리 리스트에 반영 안 되는 문제가 있었음)
   if (!gallery.classList.contains('hidden')) {
     try { await pendingUpdate; } catch (e) {}
     await renderGallery();
+  }
+}
+
+function toggleBars() {
+  barsVisible = !barsVisible;
+  photoViewTopBar.classList.toggle('hidden-soft', !barsVisible);
+  // MyFace면 info 패널 자체가 hidden이라 hidden-soft 안 씀
+  const isFace = currentViewingPhoto && currentViewingPhoto.facing === 'user';
+  if (!isFace) {
+    photoViewInfo.classList.toggle('hidden-soft', !barsVisible);
   }
 }
 
@@ -672,9 +730,9 @@ photoDelete.addEventListener('click', async () => {
   if (!currentViewingPhoto) return;
   if (!confirm('이 사진을 삭제할까요?')) return;
   const id = currentViewingPhoto.id;
+  try { await pendingUpdate; } catch (e) {}
   await deletePhotoById(id);
   revokePhotoUrl(id);
-  // photoViewList에서 제거 후 다음/이전 사진으로 이동
   photoViewList = photoViewList.filter(p => p.id !== id);
   if (photoViewList.length === 0) {
     closePhotoView();
@@ -683,14 +741,13 @@ photoDelete.addEventListener('click', async () => {
     if (photoViewIndex >= photoViewList.length) {
       photoViewIndex = photoViewList.length - 1;
     }
-    showPhotoAtIndex(photoViewIndex);
+    renderCurrentSlide();
   }
   updateGalleryBtnThumb();
 });
 
 photoDownload.addEventListener('click', () => {
   if (!currentViewingPhoto) return;
-  // 다운로드는 별도의 임시 URL 사용 (캐시 URL 수명과 분리)
   const url = URL.createObjectURL(currentViewingPhoto.blob);
   const a = document.createElement('a');
   a.href = url;
@@ -701,39 +758,118 @@ photoDownload.addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
-// 사진 상세 좌우 스와이프 → 이전/다음 사진
-(function setupSwipe() {
-  let startX = 0, startY = 0, tracking = false;
-  const SWIPE_THRESHOLD = 50; // px
+// 드래그 추적 슬라이드 + 세로 스와이프 닫기 + 탭 토글
+(function setupPhotoGestures() {
+  let startX = 0, startY = 0;
+  let dragging = false;
+  let dragDirection = null;   // 'h' | 'v' | null
+  let movedEnough = false;
+  let touchStartTime = 0;
 
-  photoViewImg.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { tracking = false; return; }
+  const DIRECTION_THRESHOLD = 8;     // 드래그 시작 판정 (px)
+  const SLIDE_THRESHOLD_RATIO = 0.22; // 다음/이전 전환 임계
+  const DISMISS_THRESHOLD = 100;      // 세로 닫기 임계 (px)
+  const TAP_MAX_MS = 280;
+
+  photoViewImgWrap.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { dragging = false; return; }
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
-    tracking = true;
+    dragging = true;
+    dragDirection = null;
+    movedEnough = false;
+    touchStartTime = Date.now();
+    // transition 제거 (손가락 따라가게)
+    setSlideTransforms(0, false);
+    photoView.style.transition = 'none';
   }, { passive: true });
 
-  photoViewImg.addEventListener('touchend', (e) => {
-    if (!tracking) return;
-    tracking = false;
-    if (!currentViewingPhoto) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    // 가로 움직임이 세로보다 크고, 임계값 넘은 경우에만 스와이프로 인정
-    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
-    if (Math.abs(dx) < Math.abs(dy)) return;
-    if (dx < 0) {
-      // 왼쪽 스와이프 → 다음(더 옛날 사진)
-      if (photoViewIndex < photoViewList.length - 1) {
-        photoViewIndex++;
-        showPhotoAtIndex(photoViewIndex);
+  photoViewImgWrap.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!dragDirection) {
+      if (Math.abs(dx) < DIRECTION_THRESHOLD && Math.abs(dy) < DIRECTION_THRESHOLD) return;
+      dragDirection = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      movedEnough = true;
+    }
+
+    if (dragDirection === 'h') {
+      // 경계에서 저항감: 이전이 없는데 오른쪽으로 당기거나 다음이 없는데 왼쪽으로 당기면 절반만 반영
+      let effectiveDx = dx;
+      if (dx > 0 && photoViewIndex === 0) effectiveDx = dx * 0.35;
+      if (dx < 0 && photoViewIndex === photoViewList.length - 1) effectiveDx = dx * 0.35;
+      setSlideTransforms(effectiveDx, false);
+    } else if (dragDirection === 'v' && dy > 0) {
+      const progress = Math.min(1, dy / window.innerHeight);
+      photoView.style.transform = 'translateY(' + dy + 'px)';
+      photoView.style.opacity = String(Math.max(0.3, 1 - progress * 0.8));
+    }
+  }, { passive: true });
+
+  photoViewImgWrap.addEventListener('touchend', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - startX;
+    const dy = touch.clientY - startY;
+    const dt = Date.now() - touchStartTime;
+
+    // 탭 (움직임 없음 + 짧은 시간)
+    if (!movedEnough) {
+      if (dt < TAP_MAX_MS) toggleBars();
+      return;
+    }
+
+    if (dragDirection === 'h') {
+      const w = window.innerWidth;
+      const threshold = w * SLIDE_THRESHOLD_RATIO;
+      if (dx < -threshold && photoViewIndex < photoViewList.length - 1) {
+        // 다음 사진으로 — 현재를 화면 왼쪽 밖으로, 다음을 중앙으로
+        const prevT = 'translateX(' + (-2 * w) + 'px)';
+        const currT = 'translateX(' + (-w) + 'px)';
+        const nextT = 'translateX(0px)';
+        const tr = 'transform 260ms cubic-bezier(0.22, 0.8, 0.3, 1)';
+        photoSlidePrev.style.transition = tr;
+        photoSlideCurr.style.transition = tr;
+        photoSlideNext.style.transition = tr;
+        photoSlidePrev.style.transform = prevT;
+        photoSlideCurr.style.transform = currT;
+        photoSlideNext.style.transform = nextT;
+        setTimeout(() => {
+          photoViewIndex++;
+          renderCurrentSlide();
+        }, 260);
+      } else if (dx > threshold && photoViewIndex > 0) {
+        const w2 = w;
+        const tr = 'transform 260ms cubic-bezier(0.22, 0.8, 0.3, 1)';
+        photoSlidePrev.style.transition = tr;
+        photoSlideCurr.style.transition = tr;
+        photoSlideNext.style.transition = tr;
+        photoSlidePrev.style.transform = 'translateX(0px)';
+        photoSlideCurr.style.transform = 'translateX(' + w2 + 'px)';
+        photoSlideNext.style.transform = 'translateX(' + (2 * w2) + 'px)';
+        setTimeout(() => {
+          photoViewIndex--;
+          renderCurrentSlide();
+        }, 260);
+      } else {
+        // 원위치
+        setSlideTransforms(0, true);
       }
-    } else {
-      // 오른쪽 스와이프 → 이전(더 최근 사진)
-      if (photoViewIndex > 0) {
-        photoViewIndex--;
-        showPhotoAtIndex(photoViewIndex);
+    } else if (dragDirection === 'v') {
+      photoView.style.transition = 'transform 220ms ease, opacity 220ms ease';
+      if (dy > DISMISS_THRESHOLD) {
+        // 닫기 애니메이션
+        photoView.style.transform = 'translateY(' + window.innerHeight + 'px)';
+        photoView.style.opacity = '0';
+        setTimeout(() => {
+          closePhotoView();
+        }, 220);
+      } else {
+        photoView.style.transform = '';
+        photoView.style.opacity = '';
       }
     }
   }, { passive: true });

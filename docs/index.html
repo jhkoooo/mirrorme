@@ -287,63 +287,108 @@
       text-align: center;
     }
 
-    /* ============ 사진 상세 화면 ============ */
+    /* ============ 사진 상세 화면 (v3.2 풀화면) ============ */
     #photoView {
       position: fixed; inset: 0;
       background: #000;
       z-index: 200;
-      display: flex; flex-direction: column;
-    }
-    #photoViewTopBar {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px 6px;
-      flex-shrink: 0;
-    }
-    #photoViewTopBar button {
-      background: none; border: 0; color: #fff;
-      font-size: 16px; font-weight: 600;
-      padding: 8px 12px;
-    }
-    #photoFav {
-      font-size: 24px;
-      line-height: 1;
-      color: rgba(255,255,255,0.5);
-      transition: color 150ms ease, transform 150ms ease;
-    }
-    #photoFav.active {
-      color: #ff3b30;
-    }
-    #photoFav:active {
-      transform: scale(0.86);
+      overflow: hidden;
+      will-change: transform, opacity;
     }
 
+    /* 3-슬라이드 이미지 컨테이너 (풀화면) */
     #photoViewImgWrap {
-      flex: 1;
-      min-height: 0;
+      position: absolute; inset: 0;
+      overflow: hidden;
+      z-index: 1;
+      touch-action: none;
+    }
+    .photoSlide {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      object-fit: contain;
+      will-change: transform;
+      pointer-events: none;
+    }
+
+    /* 상단 바 (오버레이, 탭 토글) */
+    #photoViewTopBar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 14px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 4px 0;
+      gap: 8px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.65), rgba(0,0,0,0));
+      z-index: 10;
+      transition: opacity 220ms ease, transform 220ms ease;
     }
-    #photoViewImg {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-    }
-
-    #photoViewInfo {
-      flex-shrink: 0;
-      max-height: 42vh;
-      overflow-y: auto;
-      padding: 14px 16px 8px;
-      background: rgba(255,255,255,0.04);
-      border-top: 1px solid rgba(255,255,255,0.08);
+    #photoViewTopBar.hidden-soft {
+      opacity: 0;
+      transform: translateY(-12px);
+      pointer-events: none;
     }
     #photoViewDate {
-      font-size: 12px;
-      opacity: 0.55;
-      margin-bottom: 10px;
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      color: #fff;
+      opacity: 0.95;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
       letter-spacing: 0.3px;
+    }
+    #photoTopActions {
+      display: flex;
+      gap: 6px;
+    }
+
+    /* 원형 아이콘 버튼 */
+    .iconBtn {
+      background: rgba(0,0,0,0.40);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 0;
+      color: #fff;
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0;
+    }
+    .iconBtn:active {
+      transform: scale(0.9);
+      background: rgba(0,0,0,0.60);
+    }
+    .iconBtn svg {
+      width: 19px; height: 19px;
+    }
+    .iconBtn.danger { color: #ff453a; }
+
+    #photoFav {
+      font-size: 20px;
+      line-height: 1;
+      color: rgba(255,255,255,0.85);
+      transition: color 150ms ease, transform 150ms ease, background 150ms ease;
+    }
+    #photoFav.active { color: #ff3b30; }
+
+    /* 하단 info 패널 (OOTD만, 탭 토글) */
+    #photoViewInfo {
+      position: absolute;
+      left: 0; right: 0;
+      bottom: 0;
+      padding: 18px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+      background: linear-gradient(to top, rgba(0,0,0,0.80) 40%, rgba(0,0,0,0));
+      z-index: 10;
+      max-height: 48vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      transition: opacity 220ms ease, transform 220ms ease;
+    }
+    #photoViewInfo.hidden-soft {
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
     }
     #photoMemoInput {
       width: 100%;
@@ -422,21 +467,6 @@
     #addCategoryBtn:active {
       background: rgba(255,255,255,0.18);
     }
-
-    #photoViewBar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 14px);
-      flex-shrink: 0;
-      background: rgba(0,0,0,0.6);
-      border-top: 1px solid rgba(255,255,255,0.08);
-    }
-    #photoViewBar button {
-      background: none; border: 0; color: #fff;
-      font-size: 15px; padding: 10px 16px;
-    }
-    #photoViewBar .danger { color: #ff453a; }
 
     /* ============ 카테고리 선택 메뉴 ============ */
     #categoryMenu {
@@ -527,24 +557,50 @@
     <div id="galleryEmpty" class="hidden"></div>
   </div>
 
-  <!-- 사진 상세 -->
+  <!-- 사진 상세 (v3.2 풀화면) -->
   <div id="photoView" class="hidden">
-    <div id="photoViewTopBar">
-      <button id="photoBack">← 돌아가기</button>
-      <button id="photoFav" aria-label="즐겨찾기">♥</button>
-    </div>
+    <!-- 3-슬라이드 이미지 레이어 (이전/현재/다음) -->
     <div id="photoViewImgWrap">
-      <img id="photoViewImg" alt="" />
+      <img class="photoSlide" data-role="prev" alt="" />
+      <img class="photoSlide" data-role="curr" alt="" />
+      <img class="photoSlide" data-role="next" alt="" />
     </div>
-    <div id="photoViewInfo">
+
+    <!-- 상단 바: 돌아가기 / 날짜 / 하트·다운로드·삭제 -->
+    <div id="photoViewTopBar">
+      <button id="photoBack" class="iconBtn" aria-label="돌아가기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+      </button>
       <div id="photoViewDate"></div>
+      <div id="photoTopActions">
+        <button id="photoFav" class="iconBtn" aria-label="즐겨찾기">♥</button>
+        <button id="photoDownload" class="iconBtn" aria-label="다운로드">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
+        <button id="photoDelete" class="iconBtn danger" aria-label="삭제">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+            <path d="M10 11v6"/>
+            <path d="M14 11v6"/>
+            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 하단 info 패널 (OOTD 전용, 탭 토글) -->
+    <div id="photoViewInfo">
       <input id="photoMemoInput" type="text" placeholder="오늘의 코디 메모" maxlength="80" />
       <div id="photoTagsArea"></div>
       <button id="addCategoryBtn">+ 카테고리 추가</button>
-    </div>
-    <div id="photoViewBar">
-      <button id="photoDownload">다운로드</button>
-      <button id="photoDelete" class="danger">삭제</button>
     </div>
   </div>
 
