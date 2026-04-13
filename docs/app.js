@@ -15,16 +15,18 @@
 // ============================================================
 //  DOM
 // ============================================================
-const video       = document.getElementById('video');
-const overlay     = document.getElementById('overlay');
-const startBtn    = document.getElementById('startBtn');
-const controls    = document.getElementById('controls');
-const flipBtn     = document.getElementById('flipBtn');
-const shutterBtn  = document.getElementById('shutterBtn');
-const galleryBtn  = document.getElementById('galleryBtn');
-const zoomBadge   = document.getElementById('zoomBadge');
-const captureHint = document.getElementById('captureHint');
-const toastEl     = document.getElementById('toast');
+const video         = document.getElementById('video');
+const home          = document.getElementById('home');
+const homeCards     = document.querySelectorAll('.homeCard');
+const cameraTopBar  = document.getElementById('cameraTopBar');
+const homeBtn       = document.getElementById('homeBtn');
+const controls      = document.getElementById('controls');
+const flipBtn       = document.getElementById('flipBtn');
+const shutterBtn    = document.getElementById('shutterBtn');
+const galleryBtn    = document.getElementById('galleryBtn');
+const zoomBadge     = document.getElementById('zoomBadge');
+const captureHint   = document.getElementById('captureHint');
+const toastEl       = document.getElementById('toast');
 
 const gallery       = document.getElementById('gallery');
 const galleryClose  = document.getElementById('galleryClose');
@@ -60,6 +62,7 @@ const categoryMenuCancel = document.getElementById('categoryMenuCancel');
 let currentStream       = null;
 let currentFacing       = 'user';
 let videoFirstFrameReady = false;   // 첫 프레임 디코딩 완료 플래그
+let galleryEntryPoint   = 'home';   // 'home' | 'camera' — 앨범에서 돌아갈 곳
 let currentTab     = 'environment';   // OOTD가 기본 탭
 let currentViewingPhoto = null;       // 사진 상세에서 보고 있는 photo 객체
 let photoViewList  = [];              // 사진 상세 스와이프용: 현재 탭의 정렬된 photo 배열
@@ -151,27 +154,82 @@ function updateCaptureHint() {
   captureHint.classList.toggle('hidden', currentFacing !== 'environment');
 }
 
-async function start() {
+// ============================================================
+//  홈 화면 / 모드 진입
+// ============================================================
+
+// 카메라 스트림 완전 정지 (홈으로 돌아갈 때 호출)
+function stopCamera() {
+  if (currentStream) {
+    currentStream.getTracks().forEach(t => t.stop());
+    currentStream = null;
+  }
+  if (video.srcObject) video.srcObject = null;
+  videoFirstFrameReady = false;
+}
+
+// 홈으로 돌아가기
+function showHome() {
+  // 카메라 UI 숨김
+  controls.classList.add('hidden');
+  captureHint.classList.add('hidden');
+  cameraTopBar.classList.add('hidden');
+  // 스트림 정지
+  stopCamera();
+  // 홈 화면 표시
+  home.classList.remove('hidden');
+  home.classList.remove('fading');
+}
+
+// 카메라 모드 진입 (face = 전면, ootd = 후면)
+async function enterCameraMode(mode) {
+  const facing = (mode === 'ootd') ? 'environment' : 'user';
   try {
-    await startCamera('user');
-    // overlay 페이드아웃 (video 위를 덮고 있는 검은 layer가 투명해지며 카메라가 드러남)
-    overlay.classList.add('fading');
+    // 홈 페이드아웃 (검은 배경 유지 상태로 카메라 준비)
+    home.classList.add('fading');
+    await startCamera(facing);
+    // 카메라 준비 완료 → 컨트롤·상단 바 노출
     controls.classList.remove('hidden');
-    setTimeout(() => overlay.classList.add('hidden'), 300);
+    cameraTopBar.classList.remove('hidden');
+    setTimeout(() => home.classList.add('hidden'), 300);
     updateGalleryBtnThumb();
-    // 백그라운드로 사람 감지 모델 로드 시작
     loadCocoModel();
   } catch (err) {
-    overlay.classList.remove('fading');
-    showStartError('카메라를 사용할 수 없습니다: ' + (err && err.message ? err.message : err));
+    home.classList.remove('fading');
     console.error(err);
+    toast('카메라를 사용할 수 없습니다: ' + (err && err.message ? err.message : err));
   }
 }
 
-function showStartError(msg) {
-  overlay.classList.remove('hidden');
-  overlay.querySelector('p').textContent = msg;
+// 홈에서 앨범으로 직접 진입 (카메라 없이)
+async function enterAlbumFromHome() {
+  galleryEntryPoint = 'home';
+  home.classList.add('fading');
+  setTimeout(() => {
+    home.classList.add('hidden');
+    home.classList.remove('fading');
+  }, 280);
+  // 카메라 없이 갤러리 열기
+  gallery.classList.remove('hidden');
+  await renderGallery();
 }
+
+// 홈 카드 클릭 바인딩
+homeCards.forEach(card => {
+  card.addEventListener('click', () => {
+    const mode = card.dataset.mode;
+    if (mode === 'face' || mode === 'ootd') {
+      enterCameraMode(mode);
+    } else if (mode === 'album') {
+      enterAlbumFromHome();
+    }
+  });
+});
+
+// 카메라 화면의 ← 홈 버튼
+homeBtn.addEventListener('click', () => {
+  showHome();
+});
 
 // 카메라 전환
 flipBtn.addEventListener('click', async () => {
@@ -512,32 +570,42 @@ async function updateGalleryBtnThumb() {
 // ============================================================
 //  갤러리
 // ============================================================
-galleryBtn.addEventListener('click', openGallery);
+galleryBtn.addEventListener('click', () => {
+  // 카메라 화면에서 진입 → 돌아갈 때 카메라로
+  galleryEntryPoint = 'camera';
+  openGallery();
+});
 galleryClose.addEventListener('click', closeGallery);
 
 async function openGallery() {
   // 갤러리가 떠 있는 동안 카메라 컨트롤·안내 문구는 가려둠
-  // (stacking context 문제로 클릭이 가로채지는 것 방지 + UX 정리)
   controls.classList.add('hidden');
   captureHint.classList.add('hidden');
+  cameraTopBar.classList.add('hidden');
   gallery.classList.remove('hidden');
   await renderGallery();
 }
 
 function closeGallery() {
   gallery.classList.add('hidden');
-  // 주의: 썸네일 img의 blob URL은 revoke하지 않는다. iOS Safari가 로딩 중인 URL을
-  // revoke하면 해당 img를 엑박으로 처리하는 문제가 있음. 갤러리 썸네일 수는 유한하고
-  // 페이지 리로드 시 해제되므로 여기선 DOM만 비움.
   galleryBody.innerHTML = '';
-  // 카메라 컨트롤 복원
+
+  if (galleryEntryPoint === 'home') {
+    // 홈에서 진입한 경우: 홈으로 복귀 (카메라 안 켬)
+    home.classList.remove('hidden');
+    home.classList.remove('fading');
+    updateGalleryBtnThumb();
+    return;
+  }
+
+  // 카메라에서 진입한 경우: 카메라 UI 복원
   controls.classList.remove('hidden');
+  cameraTopBar.classList.remove('hidden');
   updateCaptureHint();
-  // 갤러리에 가려져 있는 동안 iOS Safari가 video를 자동 일시정지했을 수 있음 → 재생 재개
+  // iOS Safari가 가려진 동안 video를 자동 일시정지했을 수 있음 → 재개
   if (video.srcObject && video.paused) {
     video.play().catch(() => {});
   }
-  // 썸네일도 한 번 더 동기화 (갤러리 안에서 삭제 등이 일어났을 수 있음)
   updateGalleryBtnThumb();
 }
 
@@ -804,7 +872,7 @@ photoDownload.addEventListener('click', () => {
   const url = URL.createObjectURL(currentViewingPhoto.blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'MirrorMe_' + formatDateFile(currentViewingPhoto.timestamp) + '.jpg';
+  a.download = 'MyStyle_' + formatDateFile(currentViewingPhoto.timestamp) + '.jpg';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1196,9 +1264,9 @@ function formatDateFile(ts) {
 }
 
 // ============================================================
-//  시작 + 라이프사이클
+//  라이프사이클
 // ============================================================
-startBtn.addEventListener('click', start);
+// 홈 진입은 카드 클릭으로만. PWA 첫 실행 시 홈이 바로 보임.
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && video.srcObject && video.paused) {

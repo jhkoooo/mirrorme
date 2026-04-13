@@ -83,6 +83,26 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 28. v3.3 — 홈 화면 고도화 + 앱 이름 MyStyle로 변경
+**프롬프트**: "메인화면도 고도화가 필요해 보여 시작하기 누르자마자 카메라가 바로 팍 나오니까 당황스럽네 / 상대방이 보는 내 모습 기록하기, 오늘의 스타일 기록하기 등으로 나누는것이 좋아보여 진행하지말고 회의모드로 대답해줘 / 제 추천 다 동의, 앱 이름 MyStyle 로 변경, 추가 디테일은 너가 알아서 해줘"
+**수정 파일**: `docs/index.html`, `docs/app.js`, `docs/manifest.json`
+**내용**:
+- **앱 이름 MyStyle로 리브랜딩**: `manifest.json`의 `name`/`short_name`/`description`, `<title>`, `apple-mobile-web-app-title`을 MyStyle로 변경. IndexedDB 이름(`MirrorMePhotos`)과 GitHub Pages URL은 연속성 유지 위해 그대로. 다운로드 파일명은 `MyStyle_YYYYMMDD_...jpg`로 변경.
+- **홈 화면 3-카드 구조**: 기존 `#overlay`(시작하기 버튼만 있던 화면) 제거하고 새 `#home` 추가. 상단엔 옷걸이 로고 + "MyStyle" 타이틀 + "오늘의 나를 기록하세요" 태그라인. 하단에 카드 3개:
+  1. **상대방이 보는 나** (얼굴·헤어 체크) → 전면 카메라
+  2. **오늘의 스타일** (OOTD 기록) → 후면 카메라
+  3. **앨범** (지난 기록 보기) → 갤러리 직접 진입 (카메라 없이)
+  각 카드는 SVG 라인 아이콘 + 타이틀 + 서브 카피 + 오른쪽 화살표. `rgba(255,255,255,0.06)` 배경 + 라이트 보더 + active 시 scale·배경 강조.
+- **카메라 상단 좌측 `← 홈` 버튼**: `#cameraTopBar` 신설. 원형 blur 버튼, 탭하면 카메라 스트림 정지 후 홈으로 복귀.
+- **모드 진입 함수들** (app.js):
+  - `enterCameraMode(mode)`: mode에 따라 `startCamera('user' | 'environment')` → 홈 페이드아웃 → controls·cameraTopBar 표시.
+  - `enterAlbumFromHome()`: 카메라 안 켜고 갤러리 바로 오픈. `galleryEntryPoint = 'home'`로 기록.
+  - `showHome()`: 카메라 스트림 정지(`stopCamera`) + 홈 화면 복귀. 카메라 권한·배터리 부담 감소.
+- **갤러리 진입 경로 기억**: `galleryEntryPoint` 상태로 `'home' | 'camera'` 추적. `closeGallery()`가 이 값에 따라 홈 또는 카메라 UI로 복귀하도록 분기.
+- **카메라 권한 지연**: 홈에서 앨범만 보고 싶은 사용자는 카메라 권한 없이도 앱 이용 가능. 권한 팝업은 카메라 모드 카드를 탭한 순간에만 뜸.
+- **배경 그라디언트**: 홈 화면 배경을 `linear-gradient(180deg, #000 0%, #0d0d0f 45%, #16161a 100%)`로 살짝 깊이감 추가.
+- **라이프사이클**: 기존 `startBtn.addEventListener('click', start)` 제거. 홈 진입은 카드 클릭으로만.
+
 ### 27. v3.2.4 — 사진 확대 레이아웃 재수정 + 핀치 중심점 기준 확대
 **프롬프트**: "B를 너가 이해를 제대로 못한것 같아 확대를 했을 때 첨부한 사진과같이 아래 검은 영역까지 같이 움직여, 그리고 확대할때 가운데 기준으로 자꾸 확대가 되는데 이것도 불편해"
 **수정 파일**: `docs/index.html`, `docs/app.js`

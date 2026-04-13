@@ -1,10 +1,10 @@
 ---
-name: MirrorMe iOS app
-description: Personal iOS app project — selfie camera that shows the user as others see them (un-mirrored front camera)
+name: MyStyle (ex-MirrorMe) app
+description: Personal mirror & OOTD recording PWA. v1~v3.2는 MirrorMe, v3.3부터 MyStyle로 리브랜딩. 저장소·URL·IndexedDB는 MirrorMe 이름 유지.
 type: project
 ---
 
-사용자가 만들고 있는 개인용 iOS 앱 "MirrorMe".
+사용자가 만들고 있는 PWA **"MyStyle"** (v3.3 전엔 MirrorMe).
 
 **현재 단계 (v1):**
 - 아이폰 앱, 개인 사용 전용 (배포 X)
@@ -20,8 +20,11 @@ type: project
 - v3: 날짜별 OOTD 기록 (사진 + 태그 + 메모)
 - v4+: AI 스타일 밸런스 분석 (Claude/Google Vision API), 통계, 추이
 
-**장기 비전 — MyStyle (2026-04-09):**
-거울 앱 → 스타일 매니저로 진화. 이름도 결국 `MirrorMe`보다 `MyStyle`이 적합. 탭 구조 구상: 거울 / OOTD / 앨범 / 분석 등.
+**리브랜딩 완료 (v3.3, 2026-04-13):**
+앱 이름을 **MyStyle**로 공식 변경. manifest.json / title / apple-mobile-web-app-title 전부 MyStyle. GitHub 저장소(`mirrorme`)·URL(`jhkoooo.github.io/mirrorme/`)·IndexedDB(`MirrorMePhotos`)·GoatCounter는 연속성 위해 그대로. 다운로드 파일명은 `MyStyle_...jpg`. 홈 화면도 3-카드(`상대방이 보는 나 / 오늘의 스타일 / 앨범`)로 재구성.
+
+**장기 비전:**
+거울 앱 → 스타일 매니저로 진화. 탭 구조 구상: 거울 / OOTD / 앨범 / 분석 등. v3.5에서 AI 스타일 검사 예정.
 
 **차별화 포인트 (사용자 명시 2026-04-09):**
 무신사·스타일쉐어·에이클로젯 같은 대형 OOTD 플랫폼은 "올리고 공유하는 SNS형" 구조. MirrorMe는 정반대 방향 — **개인이 본인만의 OOTD를 날짜별로 관리하는 비공개 도구**. 핵심은 "남에게 자랑/공유"가 아니라 "본인 기록과 객관적 피드백". 향후 핵심 기능으로 **AI 스타일 검사**(밸런스·색상 조합 평가, 추천/비추천, 상의/하의 변경 제안) 추가 예정. 이게 본인이 못 보는 객관적 시각을 제공하는, 앱 컨셉과 자연스럽게 연결되는 차별화.

@@ -1,7 +1,7 @@
 {
-  "name": "MirrorMe",
-  "short_name": "MirrorMe",
-  "description": "상대방이 보는 내 모습을 그대로 보여주는 거울 앱",
+  "name": "MyStyle",
+  "short_name": "MyStyle",
+  "description": "본인 스타일을 기록하고 관리하는 거울 & OOTD 앱",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
