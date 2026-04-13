@@ -251,8 +251,12 @@ async function capturePhoto() {
 
   capturing = true;
   try {
-    const screenW = window.innerWidth;
-    const screenH = window.innerHeight;
+    // video 요소의 실제 화면 크기를 기준으로 cover crop 계산.
+    // window.innerWidth/innerHeight는 iOS Safari PWA 풀스크린에서 safe area
+    // 때문에 실제 video 표시 영역과 어긋날 수 있어 crop이 틀어짐.
+    const rect = video.getBoundingClientRect();
+    const screenW = rect.width  || window.innerWidth;
+    const screenH = rect.height || window.innerHeight;
     const screenAspect = screenW / screenH;
     const videoAspect = vw / vh;
 
@@ -461,10 +465,9 @@ async function openGallery() {
 
 function closeGallery() {
   gallery.classList.add('hidden');
-  // 메모리 해제
-  galleryBody.querySelectorAll('img').forEach(img => {
-    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-  });
+  // 주의: 썸네일 img의 blob URL은 revoke하지 않는다. iOS Safari가 로딩 중인 URL을
+  // revoke하면 해당 img를 엑박으로 처리하는 문제가 있음. 갤러리 썸네일 수는 유한하고
+  // 페이지 리로드 시 해제되므로 여기선 DOM만 비움.
   galleryBody.innerHTML = '';
   // 카메라 컨트롤 복원
   controls.classList.remove('hidden');
@@ -478,10 +481,9 @@ function closeGallery() {
 }
 
 async function renderGallery() {
-  // 기존 objectURL 해제
-  galleryBody.querySelectorAll('img').forEach(img => {
-    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-  });
+  // 주의: 이전 썸네일 img의 blob URL을 revoke하지 않는다. iOS Safari는 로딩 중인
+  // blob URL을 revoke하면 엑박으로 처리하는데, closePhotoView → renderGallery
+  // 재호출 흐름에서 이 타이밍이 겹쳐 엑박이 발생했음.
   galleryBody.innerHTML = '';
 
   const all = (await getAllPhotos()).map(normalizePhoto);
