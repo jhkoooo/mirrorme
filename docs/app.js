@@ -53,6 +53,8 @@ let currentStream  = null;
 let currentFacing  = 'user';
 let currentTab     = 'environment';   // OOTD가 기본 탭
 let currentViewingPhoto = null;       // 사진 상세에서 보고 있는 photo 객체
+let photoViewList  = [];              // 사진 상세 스와이프용: 현재 탭의 정렬된 photo 배열
+let photoViewIndex = 0;               // 위 배열에서 현재 위치
 
 const MIN_ZOOM = 1, MAX_ZOOM = 5;
 let currentZoom = 1;
@@ -399,6 +401,31 @@ async function getLatestPhoto() {
   });
 }
 
+// ============================================================
+//  Blob URL 캐시 (photo.id 기반 재사용)
+// ============================================================
+// 같은 사진에 대해 URL을 반복 생성하지 않고 캐시. iOS Safari가 blob URL 관리에
+// 엄격해서 매번 새 URL을 생성하면 엑박(로딩 실패)이 발생. photo.id 단위로 URL을
+// 한 번만 만들어 썸네일·상세뷰·갤러리버튼에서 모두 공유.
+const photoUrlCache = new Map(); // id -> blob URL
+
+function getPhotoUrl(photo) {
+  if (!photo || !photo.blob) return '';
+  const cached = photoUrlCache.get(photo.id);
+  if (cached) return cached;
+  const url = URL.createObjectURL(photo.blob);
+  photoUrlCache.set(photo.id, url);
+  return url;
+}
+
+function revokePhotoUrl(id) {
+  const url = photoUrlCache.get(id);
+  if (url) {
+    URL.revokeObjectURL(url);
+    photoUrlCache.delete(id);
+  }
+}
+
 // 옛 사진 마이그레이션 헬퍼: 누락 필드 채우기 (메모리 객체에만 적용)
 function normalizePhoto(p) {
   if (!p) return p;
@@ -425,19 +452,11 @@ const GALLERY_BTN_DEFAULT_HTML =
   '<rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>' +
   '</svg>';
 
-function revokeGalleryBtnThumbUrl() {
-  const oldImg = galleryBtn.querySelector('img');
-  if (oldImg && oldImg.src.startsWith('blob:')) {
-    URL.revokeObjectURL(oldImg.src);
-  }
-}
-
 async function updateGalleryBtnThumb() {
   try {
     const latest = await getLatestPhoto();
-    revokeGalleryBtnThumbUrl();
     if (latest && latest.blob) {
-      const url = URL.createObjectURL(latest.blob);
+      const url = getPhotoUrl(normalizePhoto(latest));
       galleryBtn.innerHTML = '<img src="' + url + '" alt="최근 사진" />';
     } else {
       // 사진이 한 장도 없으면 기본 아이콘으로 복원
@@ -518,7 +537,7 @@ async function renderGallery() {
       const div = document.createElement('div');
       div.className = 'thumb';
       const img = document.createElement('img');
-      img.src = URL.createObjectURL(photo.blob);
+      img.src = getPhotoUrl(photo);
       img.alt = formatDate(photo.timestamp);
       div.appendChild(img);
       if (photo.favorite) {
@@ -570,32 +589,41 @@ document.addEventListener('click', (e) => {
 //  사진 상세 화면
 // ============================================================
 async function openPhotoView(id) {
-  const photo = normalizePhoto(await getPhoto(id));
-  if (!photo) return;
+  // 현재 탭의 사진 리스트를 미리 준비 → 스와이프로 이전/다음 이동 가능
+  const all = (await getAllPhotos()).map(normalizePhoto);
+  photoViewList = all
+    .filter(p => p.facing === currentTab)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  photoViewIndex = photoViewList.findIndex(p => p.id === id);
+  if (photoViewIndex === -1) return;
 
+  showPhotoAtIndex(photoViewIndex);
+  photoView.classList.remove('hidden');
+}
+
+function showPhotoAtIndex(i) {
+  const photo = photoViewList[i];
+  if (!photo) return;
   currentViewingPhoto = photo;
-  if (photoViewImg.src.startsWith('blob:')) URL.revokeObjectURL(photoViewImg.src);
-  photoViewImg.src = URL.createObjectURL(photo.blob);
+  photoViewImg.src = getPhotoUrl(photo);
   photoViewDate.textContent = formatDate(photo.timestamp);
   photoMemoInput.value = photo.memo || '';
   photoFav.classList.toggle('active', !!photo.favorite);
   renderTags();
 
   // MyFace(셀카)는 메모/카테고리 영역 숨김 — 얼굴/머리 기록 전용
-  // OOTD(후면)일 때만 메모와 카테고리 입력 표시
   const isFace = photo.facing === 'user';
   photoMemoInput.classList.toggle('hidden', isFace);
   photoTagsArea.classList.toggle('hidden', isFace);
   addCategoryBtn.classList.toggle('hidden', isFace);
-
-  photoView.classList.remove('hidden');
 }
 
 function closePhotoView() {
   photoView.classList.add('hidden');
-  if (photoViewImg.src.startsWith('blob:')) URL.revokeObjectURL(photoViewImg.src);
   photoViewImg.src = '';
   currentViewingPhoto = null;
+  photoViewList = [];
+  photoViewIndex = 0;
   // 갤러리가 떠 있으면 변경사항(하트, 메모 등)을 즉시 반영
   if (!gallery.classList.contains('hidden')) {
     renderGallery();
@@ -610,14 +638,25 @@ photoDelete.addEventListener('click', async () => {
   if (!currentViewingPhoto) return;
   if (!confirm('이 사진을 삭제할까요?')) return;
   const id = currentViewingPhoto.id;
-  closePhotoView();
   await deletePhotoById(id);
-  await renderGallery();
+  revokePhotoUrl(id);
+  // photoViewList에서 제거 후 다음/이전 사진으로 이동
+  photoViewList = photoViewList.filter(p => p.id !== id);
+  if (photoViewList.length === 0) {
+    closePhotoView();
+    await renderGallery();
+  } else {
+    if (photoViewIndex >= photoViewList.length) {
+      photoViewIndex = photoViewList.length - 1;
+    }
+    showPhotoAtIndex(photoViewIndex);
+  }
   updateGalleryBtnThumb();
 });
 
 photoDownload.addEventListener('click', () => {
   if (!currentViewingPhoto) return;
+  // 다운로드는 별도의 임시 URL 사용 (캐시 URL 수명과 분리)
   const url = URL.createObjectURL(currentViewingPhoto.blob);
   const a = document.createElement('a');
   a.href = url;
@@ -627,6 +666,44 @@ photoDownload.addEventListener('click', () => {
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
+
+// 사진 상세 좌우 스와이프 → 이전/다음 사진
+(function setupSwipe() {
+  let startX = 0, startY = 0, tracking = false;
+  const SWIPE_THRESHOLD = 50; // px
+
+  photoViewImg.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+
+  photoViewImg.addEventListener('touchend', (e) => {
+    if (!tracking) return;
+    tracking = false;
+    if (!currentViewingPhoto) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    // 가로 움직임이 세로보다 크고, 임계값 넘은 경우에만 스와이프로 인정
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
+    if (Math.abs(dx) < Math.abs(dy)) return;
+    if (dx < 0) {
+      // 왼쪽 스와이프 → 다음(더 옛날 사진)
+      if (photoViewIndex < photoViewList.length - 1) {
+        photoViewIndex++;
+        showPhotoAtIndex(photoViewIndex);
+      }
+    } else {
+      // 오른쪽 스와이프 → 이전(더 최근 사진)
+      if (photoViewIndex > 0) {
+        photoViewIndex--;
+        showPhotoAtIndex(photoViewIndex);
+      }
+    }
+  }, { passive: true });
+})();
 
 // 메모 자동 저장 (포커스 잃을 때)
 photoMemoInput.addEventListener('blur', async () => {

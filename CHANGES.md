@@ -10,7 +10,7 @@
 ### 1. 프로젝트 초기 구축 (SwiftUI)
 **프롬프트**: "앞으로의 기록은 md파일을 만들어서 관리해줘 1. 앱을 만들거야 아이폰 앱 2. 우선은 배포안하고 나혼자 쓰는용으로 만들거야 3. 앱을 켰을때 셀카모드에서 좌우반전되는 앱을 만들거야 상대방이 보는 나의 모습처럼 보이게 ..."
 **생성 파일**:
-- `MirrorMe/MirrorMeApp.swift`, `ContentView.swift`, `CameraController.swift`, `CameraView.swift`, `Info.plist`
+- `MirrorMe/MirrorMeApp.swift`, `ContentView.swift`, `CameraController.swift`, `CameraView.swift`, `Info.plist` 
 - `PROJECT.md`
 - 메모리: `project_mirrorme.md`, `user_dev_context.md`
 **내용**: 네이티브 SwiftUI 앱 스캐폴딩. 전면 카메라 미러링 해제 로직.
@@ -82,6 +82,15 @@
 **프롬프트**: "그리고 현재 클로드에 내가 명령해서 소스코드가 바뀌게 된 질문들을 따로 md파일을 만들어서 저장해줄수있니? 그냥 단순 질문말고 너가 수정파일 수정했을때만"
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
+
+### 20. v3.1 — 엑박 근본 수정(URL 캐시) + 사진 상세 좌우 스와이프
+**프롬프트**: "A. 이젠 하트만 누르고 앨범으로 가면 엑박 떠, 전에는 하트를 취소하고 앨범리스트로 돌아가면 엑박떴는데 / B. 이제 정상작동해 / 그리고 하나추가적으로 앨범에서 왼쪽 오른쪽으로 슬라이드 넘길시, 앨범 넘어가게 해줘 뒤로가기했다가 사진선택하니까 불편하다"
+**수정 파일**: `docs/app.js`
+**내용**:
+- **엑박 근본 수정 — blob URL 캐시**: 매번 `createObjectURL`로 새 URL을 생성하지 않고, `photoUrlCache`(Map, photo.id → URL)로 한 번만 만들어 썸네일·상세뷰·갤러리버튼에서 공유. iOS Safari가 같은 Blob에 대한 URL 중복 생성을 엄격히 관리하면서 일부가 무효화돼 엑박이 났던 문제 해결. 사진 삭제 시에만 `revokePhotoUrl(id)`로 해당 URL을 해제.
+- **스와이프 네비게이션**: 사진 상세에서 좌우 스와이프로 이전/다음 사진 이동 (iOS Photos 스타일). `openPhotoView`가 현재 탭의 `photoViewList`(timestamp desc)를 준비하고 `photoViewIndex`로 위치 추적. `touchstart/touchend`로 가로 50px 이상의 제스처를 스와이프로 인정(세로 움직임보다 가로가 커야 함). 기존엔 ← 돌아가기 후 다른 사진을 다시 탭해야 해서 불편했음.
+- **photoDelete 흐름 재조정**: 삭제 시 뷰를 닫지 않고 리스트에서 해당 사진만 제거한 뒤 인접 사진으로 자동 이동. 리스트가 비면 뷰 닫고 갤러리 재렌더링. 삭제된 사진의 URL은 `revokePhotoUrl()`로 해제.
+- **지원 변경**: `updateGalleryBtnThumb`/`closePhotoView`도 캐시를 사용하도록 단순화. `revokeGalleryBtnThumbUrl` 제거.
 
 ### 19. v3.1 버그 수정 — 앨범 썸네일 엑박 + 촬영 프레임 crop 오차
 **프롬프트**: "버그1. 하트를 취소하고 앨범으로 돌아갔을경우에 엑박이떠 / 버그2. 이건사진찍을때 프레임보다, 앨범에서 보는 프레임이 더 넓어서 느끼는거같은데 맞는지 확인해줘 ex) 나는 분명 눈까지 사진을 찍었는데, 앨범에서는 코까지 나와있어 >> 이런느낌이야 / 이대로 진행해줘"
