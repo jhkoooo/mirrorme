@@ -83,6 +83,15 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 21. v3.1 — 하트 취소 race condition + 초기 비디오 fade-in
+**프롬프트**: "엑박은 안뜨는데 하트 취소했을때 앨범리스트에서 하트에 불이 들어와있어, 그리고 처음 앱을 켰을떄 카메라 화면이 잠깐 작게 나왔다가 크게 나타나는 현상이 있어"
+**수정 파일**: `docs/app.js`, `docs/index.html`
+**내용**:
+- **하트/메모/태그 race condition 수정**: 사진 상세에서 하트 토글 → ← 돌아가기 누를 때, `updatePhoto`(IndexedDB 쓰기)가 끝나기 전에 `closePhotoView → renderGallery`(DB 읽기)가 실행되어 옛 값을 가져오던 문제. `pendingUpdate` 프라미스 큐를 신설해 모든 쓰기를 직렬화하고, `closePhotoView`에서 `await pendingUpdate` 후 `renderGallery`를 호출하도록 수정. 하트·메모·태그 칩 추가/삭제 핸들러가 모두 `queueUpdate(photo)`를 거침.
+- **초기 비디오 깜빡임 수정**: 첫 진입 시 `<video>` 요소가 프레임을 받기 전에 순간적으로 작게 렌더링됐다가 커지는 현상. 해결책:
+  - CSS: `#video`에 `transform: scale(1)` 초기값을 명시(transition이 scale unset→1로 발동하는 것 방지), `opacity: 0` 초기값 + `.ready`일 때만 `opacity: 1`로 페이드인
+  - JS: `startCamera()`에서 `video.readyState >= 2`이거나 `loadeddata` 이벤트가 발생한 후에만 `.ready` 클래스를 부여. 첫 프레임이 준비된 뒤에 부드럽게 표시.
+
 ### 20. v3.1 — 엑박 근본 수정(URL 캐시) + 사진 상세 좌우 스와이프
 **프롬프트**: "A. 이젠 하트만 누르고 앨범으로 가면 엑박 떠, 전에는 하트를 취소하고 앨범리스트로 돌아가면 엑박떴는데 / B. 이제 정상작동해 / 그리고 하나추가적으로 앨범에서 왼쪽 오른쪽으로 슬라이드 넘길시, 앨범 넘어가게 해줘 뒤로가기했다가 사진선택하니까 불편하다"
 **수정 파일**: `docs/app.js`

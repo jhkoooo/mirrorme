@@ -56,6 +56,17 @@ let currentViewingPhoto = null;       // 사진 상세에서 보고 있는 photo
 let photoViewList  = [];              // 사진 상세 스와이프용: 현재 탭의 정렬된 photo 배열
 let photoViewIndex = 0;               // 위 배열에서 현재 위치
 
+// 사진 속성 업데이트(하트/메모/태그) 큐 — IndexedDB 쓰기 완료 전에 갤러리 렌더링
+// 이 일어나는 race condition을 방지하기 위해 pending 쓰기를 직렬화
+let pendingUpdate = Promise.resolve();
+function queueUpdate(photo) {
+  pendingUpdate = pendingUpdate
+    .catch(() => {})
+    .then(() => updatePhoto(photo))
+    .catch(e => console.error('사진 업데이트 실패:', e));
+  return pendingUpdate;
+}
+
 const MIN_ZOOM = 1, MAX_ZOOM = 5;
 let currentZoom = 1;
 let pinchStartDist = 0, pinchStartZoom = 1;
@@ -103,6 +114,19 @@ async function startCamera(facing) {
   currentFacing = facing;
   video.srcObject = stream;
   await video.play();
+
+  // 첫 프레임이 들어온 후에만 video를 보이게 함 (초기에 작게→크게 보이는 깜빡임 방지)
+  if (!video.classList.contains('ready')) {
+    const markReady = () => {
+      requestAnimationFrame(() => video.classList.add('ready'));
+    };
+    if (video.readyState >= 2) {
+      markReady();
+    } else {
+      video.addEventListener('loadeddata', markReady, { once: true });
+    }
+  }
+
   resetZoom();
   updateCaptureHint();
 }
@@ -618,15 +642,18 @@ function showPhotoAtIndex(i) {
   addCategoryBtn.classList.toggle('hidden', isFace);
 }
 
-function closePhotoView() {
+async function closePhotoView() {
   photoView.classList.add('hidden');
   photoViewImg.src = '';
   currentViewingPhoto = null;
   photoViewList = [];
   photoViewIndex = 0;
-  // 갤러리가 떠 있으면 변경사항(하트, 메모 등)을 즉시 반영
+  // 갤러리가 떠 있으면 pending 쓰기 완료 후 변경사항을 반영
+  // (race condition 방지: 쓰기 끝나기 전 read하면 옛 값을 가져와서
+  //  하트 취소한 게 갤러리 리스트에 반영 안 되는 문제가 있었음)
   if (!gallery.classList.contains('hidden')) {
-    renderGallery();
+    try { await pendingUpdate; } catch (e) {}
+    await renderGallery();
   }
 }
 
@@ -706,24 +733,20 @@ photoDownload.addEventListener('click', () => {
 })();
 
 // 메모 자동 저장 (포커스 잃을 때)
-photoMemoInput.addEventListener('blur', async () => {
+photoMemoInput.addEventListener('blur', () => {
   if (!currentViewingPhoto) return;
   const v = photoMemoInput.value.trim();
   if (currentViewingPhoto.memo === v) return;
   currentViewingPhoto.memo = v;
-  try {
-    await updatePhoto(currentViewingPhoto);
-  } catch (e) { console.error('메모 저장 실패:', e); }
+  queueUpdate(currentViewingPhoto);
 });
 
 // 하트 즐겨찾기
-photoFav.addEventListener('click', async () => {
+photoFav.addEventListener('click', () => {
   if (!currentViewingPhoto) return;
   currentViewingPhoto.favorite = !currentViewingPhoto.favorite;
   photoFav.classList.toggle('active', currentViewingPhoto.favorite);
-  try {
-    await updatePhoto(currentViewingPhoto);
-  } catch (e) { console.error('즐겨찾기 저장 실패:', e); }
+  queueUpdate(currentViewingPhoto);
 });
 
 // ============================================================
@@ -749,11 +772,11 @@ function buildTagChip(key, value) {
     '<span class="tagValue"></span>' +
     '<button class="chipRemove" aria-label="삭제">×</button>';
   chip.querySelector('.tagValue').textContent = value;
-  chip.querySelector('.chipRemove').addEventListener('click', async (e) => {
+  chip.querySelector('.chipRemove').addEventListener('click', (e) => {
     e.stopPropagation();
     if (!currentViewingPhoto) return;
     currentViewingPhoto.tags[key] = '';
-    await updatePhoto(currentViewingPhoto);
+    queueUpdate(currentViewingPhoto);
     renderTags();
   });
   // 칩 자체를 탭하면 편집 모드 (값 수정)
@@ -782,14 +805,13 @@ function startEditingCategory(key, initialValue) {
   setTimeout(() => input.focus(), 30);
 
   let committed = false;
-  async function commit() {
+  function commit() {
     if (committed) return;
     committed = true;
     const v = input.value.trim();
     if (!currentViewingPhoto) { renderTags(); return; }
     currentViewingPhoto.tags[key] = v;
-    try { await updatePhoto(currentViewingPhoto); }
-    catch (e) { console.error('태그 저장 실패:', e); }
+    queueUpdate(currentViewingPhoto);
     renderTags();
   }
 
