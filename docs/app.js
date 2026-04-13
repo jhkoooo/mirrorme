@@ -115,16 +115,23 @@ async function startCamera(facing) {
   video.srcObject = stream;
   await video.play();
 
-  // 첫 프레임이 들어온 후에만 video를 보이게 함 (초기에 작게→크게 보이는 깜빡임 방지)
+  // 첫 진입: 첫 프레임이 완전히 디코딩될 때까지 대기 후 ready 처리.
+  // 이래야 start()가 overlay를 내린 시점에 video가 정상 크기로 렌더링되어
+  // "작게→크게" 깜빡임이 생기지 않음. 안전장치로 2초 타임아웃.
   if (!video.classList.contains('ready')) {
-    const markReady = () => {
-      requestAnimationFrame(() => video.classList.add('ready'));
-    };
-    if (video.readyState >= 2) {
-      markReady();
-    } else {
-      video.addEventListener('loadeddata', markReady, { once: true });
-    }
+    await Promise.race([
+      new Promise((resolve) => {
+        if (video.readyState >= 2) {
+          resolve();
+        } else {
+          video.addEventListener('loadeddata', () => resolve(), { once: true });
+        }
+      }),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+    // 첫 프레임이 화면에 페인트된 다음 프레임에 opacity를 올림
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    video.classList.add('ready');
   }
 
   resetZoom();

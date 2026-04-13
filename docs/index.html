@@ -160,11 +160,14 @@
     #captureHint.hidden { display: none; }
 
     /* ============ 시작 오버레이 ============ */
+    /* 배경을 불투명 검정으로 만들어 카메라 준비 중 video가 보이지 않게 함.
+       이게 없으면 PWA 첫 실행 시 video 첫 프레임이 잠깐 작게 보이는 현상이 생김. */
     #overlay {
       position: fixed; inset: 0;
+      background: #000;
       display: flex; align-items: center; justify-content: center;
       text-align: center; padding: 24px;
-      pointer-events: none;
+      pointer-events: auto;
     }
     #overlay .box {
       background: rgba(0,0,0,0.65);
