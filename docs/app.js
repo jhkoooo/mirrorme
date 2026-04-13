@@ -847,10 +847,12 @@ photoDownload.addEventListener('click', () => {
     setSlideTransforms(0, false);
     photoView.style.transition = 'none';
     photoSlideCurr.style.transition = 'none';
-  }, { passive: true });
+  }, { passive: false });
 
   photoViewImgWrap.addEventListener('touchmove', (e) => {
     if (!dragging) return;
+    // iOS Safari가 핀치를 기본 제스처로 가로채는 것 차단 (passive:false 전제)
+    if (e.cancelable) e.preventDefault();
 
     // 핀치 줌
     if (e.touches.length === 2 && dragMode === 'pinch') {
@@ -890,7 +892,7 @@ photoDownload.addEventListener('click', () => {
       photoView.style.transform = 'translateY(' + dy + 'px)';
       photoView.style.opacity = String(Math.max(0.3, 1 - progress * 0.8));
     }
-  }, { passive: true });
+  }, { passive: false });
 
   photoViewImgWrap.addEventListener('touchend', (e) => {
     if (!dragging) return;
@@ -985,7 +987,7 @@ photoDownload.addEventListener('click', () => {
         photoView.style.opacity = '';
       }
     }
-  }, { passive: true });
+  }, { passive: false });
 })();
 
 // 메모 자동 저장 (포커스 잃을 때)

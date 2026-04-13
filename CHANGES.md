@@ -83,6 +83,11 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 25. v3.2.2 — 사진 핀치 줌 동작 안 하는 버그 수정
+**프롬프트**: "사진 확대자체가 안되는데?"
+**수정 파일**: `docs/app.js`
+**내용**: `photoViewImgWrap`의 touchstart/touchmove/touchend를 `passive: true`로 등록하면 iOS Safari가 핀치 제스처를 기본(페이지 줌) 핸들러로 먼저 가로채서 우리 touchmove에 두 손가락 이벤트가 도달하지 못함. `user-scalable=no`로 페이지 줌이 막혀 있어도 제스처 자체가 소비되어 핀치가 동작하지 않던 상황. 세 핸들러 모두 `{ passive: false }`로 변경하고 touchmove에서 `e.preventDefault()` 호출하여 브라우저 기본 처리 차단. #video의 핀치 줌 처리와 동일한 패턴.
+
 ### 24. v3.2.1 — 카메라 깜빡임 재수정(overlay 페이드아웃 방식) + 사진 핀치 줌/팬
 **프롬프트**: "다 잘되는데 홈 아이콘 삭제 후 등록시 카메라 화면 작아졌다 커지는 증상 다시 생겼어 / 그리고 사진 확대 축소기능도 넣어줘"
 **수정 파일**: `docs/index.html`, `docs/app.js`
