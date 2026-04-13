@@ -83,6 +83,17 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 27. v3.2.4 — 사진 확대 레이아웃 재수정 + 핀치 중심점 기준 확대
+**프롬프트**: "B를 너가 이해를 제대로 못한것 같아 확대를 했을 때 첨부한 사진과같이 아래 검은 영역까지 같이 움직여, 그리고 확대할때 가운데 기준으로 자꾸 확대가 되는데 이것도 불편해"
+**수정 파일**: `docs/index.html`, `docs/app.js`
+**내용**:
+- **.photoSlide CSS 복원**: v3.2.3의 `margin:auto + max 100% + auto` 방식이 iOS Safari에서 img 요소 크기가 이상하게 계산되어 사진이 화면을 꽉 채우지 못하는 문제가 있었음(사용자 스크린샷 확인). 원래의 `inset:0 + width/height:100% + object-fit:contain`으로 복원.
+- **팬 경계 clamp 추가**: `clampPan()` 함수 신설. `scale > 1` 상태에서 translate 범위를 `±(container*(scale-1)/2)`로 제한하여 사진 가장자리가 화면 안쪽에 머물도록. 이렇게 하면 object-fit의 투명 여백이 화면 안쪽으로 드러날 수 없어 "검은 영역이 같이 움직이는" 현상이 시각적으로 사라짐. touchmove(pan), touchmove(pinch), touchend(pinch/pan) 모두에서 호출.
+- **핀치 중심점 기준 확대**: transform-origin은 center center 유지하되, 손가락 중심점이 확대/축소 전후에 화면 상 같은 위치에 머물도록 translate 보정.
+  - touchstart에서 `pinchCenterX/Y`(두 손가락 중앙 화면 좌표), `pinchStartTX/TY`(시작 시점 translate), `pinchStartScale` 저장.
+  - touchmove 공식: `zoomTX = (pinchCenterX - screenCX) - (pinchCenterX - screenCX - pinchStartTX) * k` (k = 새 scale / 시작 scale). Y도 동일. 사진 중앙이 아닌 **손가락이 닿은 지점 기준** 확대됨.
+  - 핀치 종료 후 clampPan으로 정리.
+
 ### 26. v3.2.3 — 카메라 깜빡임 최종 제거 + 사진 팬 시 여백 같이 이동 버그
 **프롬프트**: "확대는 되고, 홈 아이콘 삭제 후 등록시 카메라 화면 작아졌다 커지는 증상 또 생김 / 확대 시 하고 아래로 화면 이동 시, 아래 쪽 검은색 영역 까지 같이 움직여짐"
 **수정 파일**: `docs/index.html`

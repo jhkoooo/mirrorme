@@ -654,6 +654,25 @@ function resetPhotoZoom(withTransition) {
   applyCurrSlideTransform(!!withTransition);
 }
 
+// 확대 상태에서 사진이 화면 밖으로 완전히 벗어나지 않게 translate 제한.
+// transform-origin이 center center이므로 scale > 1일 때 img는 중앙 기준으로 팽창하고,
+// 가장자리가 화면을 넘는 거리만큼만 translate가 허용된다.
+function clampPan() {
+  if (zoomScale <= 1.001) {
+    zoomTX = 0;
+    zoomTY = 0;
+    return;
+  }
+  const w = photoViewImgWrap.clientWidth  || window.innerWidth;
+  const h = photoViewImgWrap.clientHeight || window.innerHeight;
+  const maxX = (w * (zoomScale - 1)) / 2;
+  const maxY = (h * (zoomScale - 1)) / 2;
+  if (zoomTX >  maxX) zoomTX =  maxX;
+  if (zoomTX < -maxX) zoomTX = -maxX;
+  if (zoomTY >  maxY) zoomTY =  maxY;
+  if (zoomTY < -maxY) zoomTY = -maxY;
+}
+
 // 3-슬라이드 레이아웃 적용 (offset = 가로 드래그 픽셀 값)
 function setSlideTransforms(offsetX, withTransition) {
   const w = window.innerWidth;
@@ -800,9 +819,13 @@ photoDownload.addEventListener('click', () => {
   let movedEnough = false;
   let touchStartTime = 0;
 
-  // 핀치
-  let pinchStartDist = 0;
+  // 핀치 (중심점 기반)
+  let pinchStartDist  = 0;
   let pinchStartScale = 1;
+  let pinchStartTX    = 0;
+  let pinchStartTY    = 0;
+  let pinchCenterX    = 0;  // 화면 좌표
+  let pinchCenterY    = 0;
 
   // 팬 시작점
   let panStartTX = 0;
@@ -823,8 +846,13 @@ photoDownload.addEventListener('click', () => {
       dragging = true;
       dragMode = 'pinch';
       movedEnough = true;
-      pinchStartDist = dist(e.touches[0], e.touches[1]);
+      pinchStartDist  = dist(e.touches[0], e.touches[1]);
       pinchStartScale = zoomScale;
+      pinchStartTX    = zoomTX;
+      pinchStartTY    = zoomTY;
+      // 핀치 중심점: 두 손가락 사이 중앙 (화면 좌표)
+      pinchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      pinchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
       photoSlideCurr.style.transition = 'none';
       return;
     }
@@ -854,12 +882,20 @@ photoDownload.addEventListener('click', () => {
     // iOS Safari가 핀치를 기본 제스처로 가로채는 것 차단 (passive:false 전제)
     if (e.cancelable) e.preventDefault();
 
-    // 핀치 줌
+    // 핀치 줌 (손가락 중심점 기준 확대/축소)
     if (e.touches.length === 2 && dragMode === 'pinch') {
       const newDist = dist(e.touches[0], e.touches[1]);
       const ratio = newDist / (pinchStartDist || 1);
       // 1 이하로 내리는 건 약간 허용 (놓으면 1로 스냅)
       zoomScale = Math.max(PHOTO_MIN_ZOOM * 0.8, Math.min(PHOTO_MAX_ZOOM, pinchStartScale * ratio));
+      // 핀치 중심이 화면 상에서 같은 위치에 유지되도록 translate 보정
+      // (transform-origin: center center 기준 공식)
+      const sCX = window.innerWidth / 2;
+      const sCY = window.innerHeight / 2;
+      const k = zoomScale / pinchStartScale;
+      zoomTX = (pinchCenterX - sCX) - (pinchCenterX - sCX - pinchStartTX) * k;
+      zoomTY = (pinchCenterY - sCY) - (pinchCenterY - sCY - pinchStartTY) * k;
+      clampPan();
       applyCurrSlideTransform(false);
       return;
     }
@@ -881,6 +917,7 @@ photoDownload.addEventListener('click', () => {
     if (dragMode === 'pan') {
       zoomTX = panStartTX + dx;
       zoomTY = panStartTY + dy;
+      clampPan();
       applyCurrSlideTransform(false);
     } else if (dragMode === 'swipe') {
       let eff = dx;
@@ -923,18 +960,20 @@ photoDownload.addEventListener('click', () => {
     const dy = touch.clientY - startY;
     const dt = Date.now() - touchStartTime;
 
-    // 핀치 종료: scale < 1이면 스냅 복귀, 아니면 현재 상태 유지
+    // 핀치 종료: scale < 1이면 스냅 복귀, 아니면 현재 상태 유지 (경계 재정렬)
     if (dragMode === 'pinch') {
       if (zoomScale < 1) {
         resetPhotoZoom(true);
       } else {
+        clampPan();
         applyCurrSlideTransform(true);
       }
       return;
     }
 
-    // 팬 종료: 그대로 유지 (경계 clamp 없음)
+    // 팬 종료: 경계 재정렬 후 유지
     if (dragMode === 'pan') {
+      clampPan();
       applyCurrSlideTransform(true);
       return;
     }

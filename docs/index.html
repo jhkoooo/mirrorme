@@ -310,18 +310,15 @@
       z-index: 1;
       touch-action: none;
     }
-    /* img 요소 크기를 이미지 자연 비율에 맞춰 중앙 정렬.
-       width/height 100%로 두면 투명 여백까지 img 요소의 일부가 되어 확대·팬 시
-       "검은 여백"이 같이 움직이는 것처럼 보임. margin:auto + max 100%로 실제 이미지
-       크기만 갖게 하여 여백 없이 순수 사진만 변환되게 함. */
+    /* 사진 슬라이드: 화면을 꽉 채우고 object-fit: contain으로 비율 유지.
+       여백(투명 영역)이 transform에 따라 움직이는 것처럼 보이는 문제는
+       JS의 clampPan()이 팬 범위를 제한해 사진이 화면 밖으로 벗어나지 않게 함으로써 해결. */
     .photoSlide {
       position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      margin: auto;
-      max-width: 100%;
-      max-height: 100%;
-      width: auto;
-      height: auto;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
       will-change: transform;
       pointer-events: none;
     }
