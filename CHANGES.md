@@ -83,6 +83,23 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 24. v3.2.1 — 카메라 깜빡임 재수정(overlay 페이드아웃 방식) + 사진 핀치 줌/팬
+**프롬프트**: "다 잘되는데 홈 아이콘 삭제 후 등록시 카메라 화면 작아졌다 커지는 증상 다시 생겼어 / 그리고 사진 확대 축소기능도 넣어줘"
+**수정 파일**: `docs/index.html`, `docs/app.js`
+**내용**:
+- **카메라 깜빡임 재수정**: 이전 v3.1의 video opacity fade-in 방식은 composite layer 이슈로 "작게→크게" 현상이 완전히 제거되지 않았음. 접근을 바꿔서 **video 자체는 항상 그대로 두고, 위에 덮인 `#overlay`(검정)를 페이드아웃**으로 벗기는 방식으로 전환:
+  - `#video`에서 `opacity`, `.ready` 클래스 제거. transform scale만 유지(줌 용).
+  - `#overlay`에 `transition: opacity 280ms ease` + `.fading` 클래스 추가.
+  - `start()`에서 `overlay.classList.add('fading')` → 300ms 후 `hidden`. 결과적으로 사용자는 검정에서 카메라가 드러나는 전환만 봄 (video 자체는 위치·크기 변화 없음).
+  - `startCamera()`의 ready 대기 로직은 `videoFirstFrameReady` 플래그 기반으로 유지하여 overlay 페이드아웃 시점에 첫 프레임이 이미 그려진 상태 보장.
+- **사진 핀치 줌 + 팬 추가**:
+  - 상태: `zoomScale (1~5)`, `zoomTX`, `zoomTY`. 현재 슬라이드(`photoSlideCurr`)에만 `translate + scale` transform 적용.
+  - 제스처 모드: `'swipe' | 'vertical' | 'pan' | 'pinch' | null`. 두 손가락 닿으면 `pinch`, 한 손가락 + 줌 상태면 `pan`, 그 외는 기존 `swipe`/`vertical`.
+  - 핀치 중심점 이동은 단순화(transform-origin center center). 확대 후 팬으로 이동하는 것으로 감상 가능.
+  - 핀치 중 한 손가락만 떼면 자동으로 `pan` 모드로 전환. 두 손가락 다 떼면 `scale < 1`이면 1로 스냅 복귀.
+  - 슬라이드 전환 시 줌 상태 자동 초기화(`renderCurrentSlide` 맨 앞).
+  - `setSlideTransforms`는 줌 상태일 땐 현재 슬라이드 transform을 줌 transform으로 유지.
+
 ### 23. v3.2 — 사진 상세 풀화면 + 드래그 추적 슬라이드 + 세로 스와이프 닫기
 **프롬프트**: "스와이프 중 애니메이션(슬라이드 전환)은 이번에 넣지 않았어요. iOS Photos처럼 사진이 슬쩍 밀리는 효과 넣어줘 >>이거 추가해주고, 그리고 앨범에서 사진크기 너무 작은데 아이폰 기본앨범처럼, 화면을 풀로 다 보여줄수있어? 아래 다운로드 및 삭제 나와있는건 하트 옆에 다운 아이콘과 휴지통 아이콘을 추가해서 나왔으면 좋겠네 / 이건 v3.2 기능 추가로 넣으면 될거같아 / Q1.B Q2.유지 Q3.A 추가고려사항:추가 / 진행해줘"
 **수정 파일**: `docs/index.html`, `docs/app.js`

@@ -57,8 +57,9 @@ const categoryMenuCancel = document.getElementById('categoryMenuCancel');
 // ============================================================
 //  상태
 // ============================================================
-let currentStream  = null;
-let currentFacing  = 'user';
+let currentStream       = null;
+let currentFacing       = 'user';
+let videoFirstFrameReady = false;   // 첫 프레임 디코딩 완료 플래그
 let currentTab     = 'environment';   // OOTD가 기본 탭
 let currentViewingPhoto = null;       // 사진 상세에서 보고 있는 photo 객체
 let photoViewList  = [];              // 사진 상세 스와이프용: 현재 탭의 정렬된 photo 배열
@@ -123,10 +124,9 @@ async function startCamera(facing) {
   video.srcObject = stream;
   await video.play();
 
-  // 첫 진입: 첫 프레임이 완전히 디코딩될 때까지 대기 후 ready 처리.
-  // 이래야 start()가 overlay를 내린 시점에 video가 정상 크기로 렌더링되어
-  // "작게→크게" 깜빡임이 생기지 않음. 안전장치로 2초 타임아웃.
-  if (!video.classList.contains('ready')) {
+  // 첫 진입: 첫 프레임이 완전히 디코딩되고 페인트될 때까지 대기.
+  // overlay가 이 후에 페이드아웃되므로 사용자는 "검정→카메라" 전환만 봄 (깜빡임 없음).
+  if (!videoFirstFrameReady) {
     await Promise.race([
       new Promise((resolve) => {
         if (video.readyState >= 2) {
@@ -137,9 +137,9 @@ async function startCamera(facing) {
       }),
       new Promise((resolve) => setTimeout(resolve, 2000)),
     ]);
-    // 첫 프레임이 화면에 페인트된 다음 프레임에 opacity를 올림
+    // 첫 프레임이 화면에 페인트된 다음 프레임까지 대기
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    video.classList.add('ready');
+    videoFirstFrameReady = true;
   }
 
   resetZoom();
@@ -154,12 +154,15 @@ function updateCaptureHint() {
 async function start() {
   try {
     await startCamera('user');
-    overlay.classList.add('hidden');
+    // overlay 페이드아웃 (video 위를 덮고 있는 검은 layer가 투명해지며 카메라가 드러남)
+    overlay.classList.add('fading');
     controls.classList.remove('hidden');
+    setTimeout(() => overlay.classList.add('hidden'), 300);
     updateGalleryBtnThumb();
     // 백그라운드로 사람 감지 모델 로드 시작
     loadCocoModel();
   } catch (err) {
+    overlay.classList.remove('fading');
     showStartError('카메라를 사용할 수 없습니다: ' + (err && err.message ? err.message : err));
     console.error(err);
   }
@@ -625,9 +628,31 @@ document.addEventListener('click', (e) => {
 });
 
 // ============================================================
-//  사진 상세 화면 (v3.2 풀화면 + 드래그 슬라이드)
+//  사진 상세 화면 (v3.2 풀화면 + 드래그 슬라이드 + 핀치 줌)
 // ============================================================
 let barsVisible = true;           // 상단/하단 바 토글 상태
+
+// 현재 슬라이드의 핀치 줌/팬 상태
+let zoomScale = 1;
+let zoomTX = 0;
+let zoomTY = 0;
+const PHOTO_MIN_ZOOM = 1;
+const PHOTO_MAX_ZOOM = 5;
+
+function applyCurrSlideTransform(withTransition) {
+  photoSlideCurr.style.transition = withTransition
+    ? 'transform 220ms cubic-bezier(0.22, 0.8, 0.3, 1)'
+    : 'none';
+  photoSlideCurr.style.transform =
+    'translate(' + zoomTX + 'px,' + zoomTY + 'px) scale(' + zoomScale + ')';
+}
+
+function resetPhotoZoom(withTransition) {
+  zoomScale = 1;
+  zoomTX = 0;
+  zoomTY = 0;
+  applyCurrSlideTransform(!!withTransition);
+}
 
 // 3-슬라이드 레이아웃 적용 (offset = 가로 드래그 픽셀 값)
 function setSlideTransforms(offsetX, withTransition) {
@@ -636,15 +661,24 @@ function setSlideTransforms(offsetX, withTransition) {
     ? 'transform 260ms cubic-bezier(0.22, 0.8, 0.3, 1)'
     : 'none';
   photoSlidePrev.style.transition = tr;
-  photoSlideCurr.style.transition = tr;
   photoSlideNext.style.transition = tr;
   photoSlidePrev.style.transform = 'translateX(' + (-w + offsetX) + 'px)';
-  photoSlideCurr.style.transform = 'translateX(' + offsetX + 'px)';
   photoSlideNext.style.transform = 'translateX(' + (w + offsetX) + 'px)';
+  // 현재 슬라이드: 줌 상태면 zoom transform 유지, 아니면 가로 offset 적용
+  photoSlideCurr.style.transition = tr;
+  if (zoomScale > 1.001) {
+    photoSlideCurr.style.transform =
+      'translate(' + zoomTX + 'px,' + zoomTY + 'px) scale(' + zoomScale + ')';
+  } else {
+    photoSlideCurr.style.transform = 'translateX(' + offsetX + 'px)';
+  }
 }
 
 // photoViewIndex 기준으로 3개 슬라이드의 이미지·상태를 갱신
 function renderCurrentSlide() {
+  // 슬라이드가 바뀌면 줌 초기화
+  zoomScale = 1; zoomTX = 0; zoomTY = 0;
+
   const curr = photoViewList[photoViewIndex];
   const prev = photoViewList[photoViewIndex - 1];
   const next = photoViewList[photoViewIndex + 1];
@@ -758,50 +792,100 @@ photoDownload.addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
-// 드래그 추적 슬라이드 + 세로 스와이프 닫기 + 탭 토글
+// 드래그 슬라이드 + 세로 닫기 + 탭 토글 + 핀치 줌 & 팬
 (function setupPhotoGestures() {
   let startX = 0, startY = 0;
   let dragging = false;
-  let dragDirection = null;   // 'h' | 'v' | null
+  let dragMode = null;        // 'swipe' | 'vertical' | 'pan' | 'pinch' | null
   let movedEnough = false;
   let touchStartTime = 0;
 
-  const DIRECTION_THRESHOLD = 8;     // 드래그 시작 판정 (px)
+  // 핀치
+  let pinchStartDist = 0;
+  let pinchStartScale = 1;
+
+  // 팬 시작점
+  let panStartTX = 0;
+  let panStartTY = 0;
+
+  const DIRECTION_THRESHOLD  = 8;     // 드래그 시작 판정 (px)
   const SLIDE_THRESHOLD_RATIO = 0.22; // 다음/이전 전환 임계
-  const DISMISS_THRESHOLD = 100;      // 세로 닫기 임계 (px)
-  const TAP_MAX_MS = 280;
+  const DISMISS_THRESHOLD    = 100;   // 세로 닫기 임계 (px)
+  const TAP_MAX_MS           = 280;
+
+  function dist(t1, t2) {
+    return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+  }
 
   photoViewImgWrap.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) { dragging = false; return; }
+    // 두 손가락 → 핀치 시작
+    if (e.touches.length === 2) {
+      dragging = true;
+      dragMode = 'pinch';
+      movedEnough = true;
+      pinchStartDist = dist(e.touches[0], e.touches[1]);
+      pinchStartScale = zoomScale;
+      photoSlideCurr.style.transition = 'none';
+      return;
+    }
+    if (e.touches.length !== 1) return;
+
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     dragging = true;
-    dragDirection = null;
+    dragMode = null;
     movedEnough = false;
     touchStartTime = Date.now();
-    // transition 제거 (손가락 따라가게)
+
+    // 줌 상태면 팬 시작점 기록
+    if (zoomScale > 1.001) {
+      panStartTX = zoomTX;
+      panStartTY = zoomTY;
+    }
+
+    // transition 제거 (손가락 실시간 추적)
     setSlideTransforms(0, false);
     photoView.style.transition = 'none';
+    photoSlideCurr.style.transition = 'none';
   }, { passive: true });
 
   photoViewImgWrap.addEventListener('touchmove', (e) => {
     if (!dragging) return;
+
+    // 핀치 줌
+    if (e.touches.length === 2 && dragMode === 'pinch') {
+      const newDist = dist(e.touches[0], e.touches[1]);
+      const ratio = newDist / (pinchStartDist || 1);
+      // 1 이하로 내리는 건 약간 허용 (놓으면 1로 스냅)
+      zoomScale = Math.max(PHOTO_MIN_ZOOM * 0.8, Math.min(PHOTO_MAX_ZOOM, pinchStartScale * ratio));
+      applyCurrSlideTransform(false);
+      return;
+    }
+
+    if (e.touches.length !== 1) return;
     const dx = e.touches[0].clientX - startX;
     const dy = e.touches[0].clientY - startY;
 
-    if (!dragDirection) {
+    if (!dragMode) {
       if (Math.abs(dx) < DIRECTION_THRESHOLD && Math.abs(dy) < DIRECTION_THRESHOLD) return;
-      dragDirection = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
       movedEnough = true;
+      if (zoomScale > 1.001) {
+        dragMode = 'pan';
+      } else {
+        dragMode = Math.abs(dx) > Math.abs(dy) ? 'swipe' : 'vertical';
+      }
     }
 
-    if (dragDirection === 'h') {
-      // 경계에서 저항감: 이전이 없는데 오른쪽으로 당기거나 다음이 없는데 왼쪽으로 당기면 절반만 반영
-      let effectiveDx = dx;
-      if (dx > 0 && photoViewIndex === 0) effectiveDx = dx * 0.35;
-      if (dx < 0 && photoViewIndex === photoViewList.length - 1) effectiveDx = dx * 0.35;
-      setSlideTransforms(effectiveDx, false);
-    } else if (dragDirection === 'v' && dy > 0) {
+    if (dragMode === 'pan') {
+      zoomTX = panStartTX + dx;
+      zoomTY = panStartTY + dy;
+      applyCurrSlideTransform(false);
+    } else if (dragMode === 'swipe') {
+      let eff = dx;
+      if (dx > 0 && photoViewIndex === 0) eff = dx * 0.35;
+      if (dx < 0 && photoViewIndex === photoViewList.length - 1) eff = dx * 0.35;
+      setSlideTransforms(eff, false);
+    } else if (dragMode === 'vertical' && dy > 0) {
       const progress = Math.min(1, dy / window.innerHeight);
       photoView.style.transform = 'translateY(' + dy + 'px)';
       photoView.style.opacity = String(Math.max(0.3, 1 - progress * 0.8));
@@ -810,63 +894,92 @@ photoDownload.addEventListener('click', () => {
 
   photoViewImgWrap.addEventListener('touchend', (e) => {
     if (!dragging) return;
+
+    // 손가락이 아직 남아 있음 (멀티터치의 일부)
+    if (e.touches.length > 0) {
+      // 핀치 중 한 손가락만 뗀 경우: 남은 손가락으로 팬 가능하게 전환
+      if (dragMode === 'pinch' && e.touches.length === 1) {
+        if (zoomScale > 1.001) {
+          dragMode = 'pan';
+          startX = e.touches[0].clientX;
+          startY = e.touches[0].clientY;
+          panStartTX = zoomTX;
+          panStartTY = zoomTY;
+        } else {
+          // 줌이 거의 1이면 스냅 복귀 + 제스처 종료
+          resetPhotoZoom(true);
+          dragging = false;
+        }
+      }
+      return;
+    }
+
+    // 모든 손가락 뗐음 → 제스처 마무리
     dragging = false;
     const touch = e.changedTouches[0];
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
     const dt = Date.now() - touchStartTime;
 
-    // 탭 (움직임 없음 + 짧은 시간)
+    // 핀치 종료: scale < 1이면 스냅 복귀, 아니면 현재 상태 유지
+    if (dragMode === 'pinch') {
+      if (zoomScale < 1) {
+        resetPhotoZoom(true);
+      } else {
+        applyCurrSlideTransform(true);
+      }
+      return;
+    }
+
+    // 팬 종료: 그대로 유지 (경계 clamp 없음)
+    if (dragMode === 'pan') {
+      applyCurrSlideTransform(true);
+      return;
+    }
+
+    // 탭 감지
     if (!movedEnough) {
       if (dt < TAP_MAX_MS) toggleBars();
       return;
     }
 
-    if (dragDirection === 'h') {
+    // swipe 마무리
+    if (dragMode === 'swipe') {
       const w = window.innerWidth;
       const threshold = w * SLIDE_THRESHOLD_RATIO;
       if (dx < -threshold && photoViewIndex < photoViewList.length - 1) {
-        // 다음 사진으로 — 현재를 화면 왼쪽 밖으로, 다음을 중앙으로
-        const prevT = 'translateX(' + (-2 * w) + 'px)';
-        const currT = 'translateX(' + (-w) + 'px)';
-        const nextT = 'translateX(0px)';
         const tr = 'transform 260ms cubic-bezier(0.22, 0.8, 0.3, 1)';
         photoSlidePrev.style.transition = tr;
         photoSlideCurr.style.transition = tr;
         photoSlideNext.style.transition = tr;
-        photoSlidePrev.style.transform = prevT;
-        photoSlideCurr.style.transform = currT;
-        photoSlideNext.style.transform = nextT;
+        photoSlidePrev.style.transform = 'translateX(' + (-2 * w) + 'px)';
+        photoSlideCurr.style.transform = 'translateX(' + (-w) + 'px)';
+        photoSlideNext.style.transform = 'translateX(0px)';
         setTimeout(() => {
           photoViewIndex++;
           renderCurrentSlide();
         }, 260);
       } else if (dx > threshold && photoViewIndex > 0) {
-        const w2 = w;
         const tr = 'transform 260ms cubic-bezier(0.22, 0.8, 0.3, 1)';
         photoSlidePrev.style.transition = tr;
         photoSlideCurr.style.transition = tr;
         photoSlideNext.style.transition = tr;
         photoSlidePrev.style.transform = 'translateX(0px)';
-        photoSlideCurr.style.transform = 'translateX(' + w2 + 'px)';
-        photoSlideNext.style.transform = 'translateX(' + (2 * w2) + 'px)';
+        photoSlideCurr.style.transform = 'translateX(' + w + 'px)';
+        photoSlideNext.style.transform = 'translateX(' + (2 * w) + 'px)';
         setTimeout(() => {
           photoViewIndex--;
           renderCurrentSlide();
         }, 260);
       } else {
-        // 원위치
         setSlideTransforms(0, true);
       }
-    } else if (dragDirection === 'v') {
+    } else if (dragMode === 'vertical') {
       photoView.style.transition = 'transform 220ms ease, opacity 220ms ease';
       if (dy > DISMISS_THRESHOLD) {
-        // 닫기 애니메이션
         photoView.style.transform = 'translateY(' + window.innerHeight + 'px)';
         photoView.style.opacity = '0';
-        setTimeout(() => {
-          closePhotoView();
-        }, 220);
+        setTimeout(() => closePhotoView(), 220);
       } else {
         photoView.style.transform = '';
         photoView.style.opacity = '';
