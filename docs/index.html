@@ -41,7 +41,9 @@
     /* ============ 카메라 ============ */
     /* 비디오는 항상 보임. 카메라 준비 중에는 위에 overlay(#000)가 덮고 있으며,
        준비가 끝나면 overlay가 페이드아웃해서 카메라가 자연스럽게 드러남.
-       이렇게 해야 video 자체의 opacity/scale 전환 때문에 "작게→크게" 보이던 문제가 안 생김. */
+       transition은 두지 않는다 — 이전에 transform 60ms transition이 첫 진입 시점에
+       발동되면서 "작게→크게" 깜빡임이 보이던 버그가 있었음. 핀치 zoom은 매 프레임
+       값이 바뀌어 transition 없이도 충분히 부드럽게 동작함. */
     #video {
       position: fixed; inset: 0;
       width: 100%; height: 100%;
@@ -49,7 +51,6 @@
       background: #000;
       transform: scale(1);
       transform-origin: center center;
-      transition: transform 60ms linear;
     }
 
     #zoomBadge {
@@ -309,11 +310,18 @@
       z-index: 1;
       touch-action: none;
     }
+    /* img 요소 크기를 이미지 자연 비율에 맞춰 중앙 정렬.
+       width/height 100%로 두면 투명 여백까지 img 요소의 일부가 되어 확대·팬 시
+       "검은 여백"이 같이 움직이는 것처럼 보임. margin:auto + max 100%로 실제 이미지
+       크기만 갖게 하여 여백 없이 순수 사진만 변환되게 함. */
     .photoSlide {
       position: absolute;
-      inset: 0;
-      width: 100%; height: 100%;
-      object-fit: contain;
+      top: 0; left: 0; right: 0; bottom: 0;
+      margin: auto;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
       will-change: transform;
       pointer-events: none;
     }
