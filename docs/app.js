@@ -56,6 +56,17 @@ const photoSlides    = [photoSlidePrev, photoSlideCurr, photoSlideNext];
 const categoryMenu       = document.getElementById('categoryMenu');
 const categoryMenuCancel = document.getElementById('categoryMenuCancel');
 
+// 스타일 검사 / 설정
+const photoStyleCheckBtn = document.getElementById('photoStyleCheckBtn');
+const styleCheckCard     = document.getElementById('styleCheckCard');
+const homeSettingsBtn    = document.getElementById('homeSettingsBtn');
+const settings           = document.getElementById('settings');
+const settingsClose      = document.getElementById('settingsClose');
+const geminiKeyInput     = document.getElementById('geminiKeyInput');
+const geminiKeySave      = document.getElementById('geminiKeySave');
+const geminiKeyClear     = document.getElementById('geminiKeyClear');
+const keyStatus          = document.getElementById('keyStatus');
+
 // ============================================================
 //  상태
 // ============================================================
@@ -85,6 +96,12 @@ let pinchStartDist = 0, pinchStartZoom = 1;
 let zoomFadeTimer = null;
 
 let toastTimer = null;
+
+// 스타일 검사 관련
+const GEMINI_KEY_STORAGE = 'mystyle_gemini_api_key';
+const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
+let styleCheckInFlight = false;
 
 // 카테고리 정의
 const CATEGORY_KEYS = ['top', 'bottom', 'shoes', 'outer', 'accessory'];
@@ -539,6 +556,8 @@ function normalizePhoto(p) {
     }
   }
   if (typeof p.favorite !== 'boolean') p.favorite = false;
+  if (p.styleCheck && typeof p.styleCheck !== 'object') p.styleCheck = null;
+  if (typeof p.styleCheck === 'undefined') p.styleCheck = null;
   return p;
 }
 
@@ -791,6 +810,9 @@ function renderCurrentSlide() {
   photoMemoInput.classList.toggle('hidden', isFace);
   photoTagsArea.classList.toggle('hidden', isFace);
   addCategoryBtn.classList.toggle('hidden', isFace);
+  // 스타일 검사 버튼은 OOTD에만 노출
+  photoStyleCheckBtn.classList.toggle('hidden', isFace);
+  renderStyleCheckCard();
 
   // 바 가시성 상태 재적용 (MyFace면 info는 hidden이라 hidden-soft 안 붙임)
   photoViewTopBar.classList.toggle('hidden-soft', !barsVisible);
@@ -1262,6 +1284,264 @@ function formatDateFile(ts) {
     String(d.getMinutes()).padStart(2, '0') +
     String(d.getSeconds()).padStart(2, '0');
 }
+
+// ============================================================
+//  설정 (API 키 관리)
+// ============================================================
+function getGeminiKey() {
+  try { return localStorage.getItem(GEMINI_KEY_STORAGE) || ''; }
+  catch (e) { return ''; }
+}
+function setGeminiKey(v) {
+  try {
+    if (v) localStorage.setItem(GEMINI_KEY_STORAGE, v);
+    else localStorage.removeItem(GEMINI_KEY_STORAGE);
+  } catch (e) {}
+}
+
+function refreshKeyStatus() {
+  const k = getGeminiKey();
+  if (k) {
+    keyStatus.textContent = '✓ 키가 저장되어 있습니다 (...' + k.slice(-6) + ')';
+    keyStatus.classList.add('ok');
+    geminiKeyInput.value = '';
+    geminiKeyInput.placeholder = '변경하려면 새 키 입력';
+  } else {
+    keyStatus.textContent = '키가 저장되어 있지 않습니다.';
+    keyStatus.classList.remove('ok');
+    geminiKeyInput.placeholder = 'AIza...';
+  }
+}
+
+function openSettings() {
+  refreshKeyStatus();
+  settings.classList.remove('hidden');
+}
+function closeSettings() {
+  settings.classList.add('hidden');
+  geminiKeyInput.value = '';
+}
+
+homeSettingsBtn.addEventListener('click', openSettings);
+settingsClose.addEventListener('click', closeSettings);
+settings.addEventListener('click', (e) => {
+  if (e.target === settings) closeSettings();
+});
+
+geminiKeySave.addEventListener('click', () => {
+  const v = geminiKeyInput.value.trim();
+  if (!v) { toast('키를 입력해 주세요'); return; }
+  if (!/^AIza[A-Za-z0-9_\-]{20,}$/.test(v)) {
+    toast('키 형식이 올바르지 않은 것 같습니다');
+    return;
+  }
+  setGeminiKey(v);
+  refreshKeyStatus();
+  toast('저장되었습니다');
+});
+
+geminiKeyClear.addEventListener('click', () => {
+  if (!getGeminiKey()) return;
+  if (!confirm('저장된 API 키를 삭제할까요?')) return;
+  setGeminiKey('');
+  refreshKeyStatus();
+  toast('삭제되었습니다');
+});
+
+// ============================================================
+//  스타일 검사 (Gemini Vision)
+// ============================================================
+const STYLE_CHECK_PROMPT =
+  '이 사진에 찍힌 사람의 패션 스타일을 객관적이고 분석적인 톤으로 평가해줘. 한국어로, 친절하지만 직설적으로. 다음 JSON 형식을 반드시 지켜 응답해:\n' +
+  '{\n' +
+  '  "score": 1~10 사이의 정수,\n' +
+  '  "colorBalance": "상" 또는 "중" 또는 "하",\n' +
+  '  "silhouetteBalance": "상" 또는 "중" 또는 "하",\n' +
+  '  "comment": "종합 평가 한 줄 (40자 이내, 구체적으로)",\n' +
+  '  "suggestion": "구체적 개선 제안 1가지 (40자 이내)",\n' +
+  '  "tags": {\n' +
+  '    "top": "상의 짧은 설명 (예: 흰색 옥스퍼드 셔츠). 없으면 빈 문자열",\n' +
+  '    "bottom": "하의 짧은 설명. 없으면 빈 문자열",\n' +
+  '    "shoes": "신발 짧은 설명. 없으면 빈 문자열",\n' +
+  '    "outer": "아우터 짧은 설명. 없으면 빈 문자열",\n' +
+  '    "accessory": "액세서리 짧은 설명. 없으면 빈 문자열"\n' +
+  '  }\n' +
+  '}\n' +
+  '다른 텍스트(설명·마크다운·코드펜스) 없이 JSON만 반환해.';
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => {
+      const s = r.result;
+      const comma = s.indexOf(',');
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function callGeminiVision(apiKey, blob) {
+  const b64 = await blobToBase64(blob);
+  const body = {
+    contents: [{
+      parts: [
+        { text: STYLE_CHECK_PROMPT },
+        { inline_data: { mime_type: blob.type || 'image/jpeg', data: b64 } },
+      ],
+    }],
+    generationConfig: {
+      response_mime_type: 'application/json',
+      temperature: 0.4,
+      maxOutputTokens: 600,
+    },
+  };
+  const res = await fetch(GEMINI_ENDPOINT + '?key=' + encodeURIComponent(apiKey), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error('API ' + res.status + ': ' + errText.slice(0, 200));
+  }
+  const data = await res.json();
+  const text = data && data.candidates && data.candidates[0]
+    && data.candidates[0].content && data.candidates[0].content.parts
+    && data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+  if (!text) throw new Error('응답이 비어있습니다');
+  return parseStyleCheckJson(text);
+}
+
+function parseStyleCheckJson(text) {
+  // 코드펜스나 여분 텍스트 대비
+  let s = text.trim();
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  const obj = JSON.parse(s);
+  // 필드 검증 + 정규화
+  const score = Math.max(1, Math.min(10, parseInt(obj.score, 10) || 0));
+  const pick = (v, def) => (v === '상' || v === '중' || v === '하') ? v : def;
+  const tags = (obj.tags && typeof obj.tags === 'object') ? obj.tags : {};
+  return {
+    score,
+    colorBalance: pick(obj.colorBalance, '중'),
+    silhouetteBalance: pick(obj.silhouetteBalance, '중'),
+    comment: String(obj.comment || '').slice(0, 80),
+    suggestion: String(obj.suggestion || '').slice(0, 80),
+    tags: {
+      top:       String(tags.top || ''),
+      bottom:    String(tags.bottom || ''),
+      shoes:     String(tags.shoes || ''),
+      outer:     String(tags.outer || ''),
+      accessory: String(tags.accessory || ''),
+    },
+    analyzedAt: Date.now(),
+  };
+}
+
+async function runStyleCheck() {
+  if (styleCheckInFlight) return;
+  if (!currentViewingPhoto) return;
+  if (currentViewingPhoto.facing !== 'environment') {
+    toast('OOTD 사진만 분석할 수 있어요');
+    return;
+  }
+  const key = getGeminiKey();
+  if (!key) {
+    toast('먼저 설정에서 API 키를 등록해주세요');
+    // 잠시 후 설정 열어주기
+    setTimeout(() => openSettings(), 600);
+    return;
+  }
+
+  styleCheckInFlight = true;
+  renderStyleCheckCard({ loading: true });
+
+  try {
+    const result = await callGeminiVision(key, currentViewingPhoto.blob);
+
+    // AI가 채운 태그를 사용자 tags에 반영 (비어 있는 필드에만, 기존 값 유지 우선)
+    const existing = currentViewingPhoto.tags || {};
+    const merged = {};
+    for (const k of CATEGORY_KEYS) {
+      const userVal = (existing[k] || '').trim();
+      merged[k] = userVal || (result.tags[k] || '').trim();
+    }
+    currentViewingPhoto.tags = merged;
+    currentViewingPhoto.styleCheck = {
+      score: result.score,
+      colorBalance: result.colorBalance,
+      silhouetteBalance: result.silhouetteBalance,
+      comment: result.comment,
+      suggestion: result.suggestion,
+      analyzedAt: result.analyzedAt,
+    };
+
+    queueUpdate(currentViewingPhoto);
+    renderStyleCheckCard();
+    renderTags();
+    toast('분석 완료');
+  } catch (err) {
+    console.error('[MyStyle] 스타일 검사 실패:', err);
+    toast('분석 실패: ' + (err && err.message ? err.message.slice(0, 60) : ''));
+    renderStyleCheckCard();
+  } finally {
+    styleCheckInFlight = false;
+  }
+}
+
+function renderStyleCheckCard(opts) {
+  const loading = !!(opts && opts.loading);
+  if (!currentViewingPhoto || currentViewingPhoto.facing !== 'environment') {
+    styleCheckCard.classList.add('hidden');
+    styleCheckCard.innerHTML = '';
+    return;
+  }
+  const sc = currentViewingPhoto.styleCheck;
+  if (!sc && !loading) {
+    styleCheckCard.classList.add('hidden');
+    styleCheckCard.innerHTML = '';
+    return;
+  }
+
+  styleCheckCard.classList.remove('hidden');
+  styleCheckCard.classList.toggle('loading', loading);
+
+  if (loading) {
+    styleCheckCard.innerHTML =
+      '<div class="styleCheckLoading"><div class="spinner"></div><span>스타일 분석 중...</span></div>';
+    return;
+  }
+
+  const dateStr = sc.analyzedAt ? formatDate(sc.analyzedAt) : '';
+  styleCheckCard.innerHTML =
+    '<div class="styleCheckHeader">' +
+      '<div class="styleCheckScore">' + sc.score + '<span class="max">/10</span></div>' +
+      '<div class="styleCheckBalance">' +
+        '<span>색상 <b>' + sc.colorBalance + '</b></span>' +
+        '<span>실루엣 <b>' + sc.silhouetteBalance + '</b></span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="styleCheckBody">' +
+      '<div class="styleCheckComment"></div>' +
+      (sc.suggestion ? '<div class="styleCheckSuggestion"></div>' : '') +
+    '</div>' +
+    '<div class="styleCheckFooter">' +
+      '<span>' + dateStr + '</span>' +
+      '<button class="styleCheckRerun">다시 검사</button>' +
+    '</div>';
+
+  styleCheckCard.querySelector('.styleCheckComment').textContent = sc.comment;
+  if (sc.suggestion) {
+    styleCheckCard.querySelector('.styleCheckSuggestion').textContent = sc.suggestion;
+  }
+  styleCheckCard.querySelector('.styleCheckRerun').addEventListener('click', runStyleCheck);
+}
+
+photoStyleCheckBtn.addEventListener('click', runStyleCheck);
 
 // ============================================================
 //  라이프사이클

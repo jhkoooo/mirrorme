@@ -83,6 +83,20 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 29. v3.5 — AI 스타일 검사 (Gemini Vision)
+**프롬프트**: "제 추천 다 동의 + 키 발급 완료, 진행해줘"
+**수정 파일**: `docs/index.html`, `docs/app.js`
+**내용**: OOTD 사진을 Google Gemini 2.0 Flash Vision API로 분석해 점수·색상밸런스·실루엣밸런스·코멘트·개선 제안을 받아 사진 상세 info 패널에 표시. 무료 티어라 본인 사용엔 비용 0원.
+- **설정 화면** — 홈 상단 우측 ⚙️ 버튼 → 하단 시트. Gemini API 키 입력(localStorage `mystyle_gemini_api_key`). 저장/삭제/마스킹(...마지막 6자). `AIza[...]` 형식 기초 검증.
+- **사진 상세 ✨ 버튼** — 상단 바 `photoTopActions`에 별 모양 아이콘 추가. OOTD일 때만 표시(`hidden` 토글은 `renderCurrentSlide`에서 처리). 탭 → `runStyleCheck()`.
+- **Gemini API 호출** — `gemini-2.0-flash:generateContent` 엔드포인트. blob→base64 (`FileReader`) 후 `inline_data`로 전송. `response_mime_type: 'application/json'`로 구조화 JSON 응답 요구. temperature 0.4, maxOutputTokens 600. 에러 상태·비어있는 응답 모두 throw 처리.
+- **프롬프트** — 한국어 객관적·분석적 톤. JSON 필드: `score`(1~10), `colorBalance/silhouetteBalance`(상/중/하), `comment`(40자), `suggestion`(40자), `tags`(상의/하의/신발/아우터/액세서리 각각 짧은 설명). 마크다운·코드펜스 금지 명시.
+- **응답 파싱** — `parseStyleCheckJson()`이 중괄호 범위 추출 → `JSON.parse` → 필드 정규화(score clamp, 밸런스 값 검증). 
+- **AI 태그 자동 채움** — 기존 `photo.tags`에 사용자 값이 있으면 유지, 비어있는 필드에만 AI 값 채움(덮어쓰기 X). 기존 카테고리 칩 UI가 자동 렌더링하여 사용자가 탭해 수정 가능.
+- **styleCheck 필드** — `{score, colorBalance, silhouetteBalance, comment, suggestion, analyzedAt}` 형태로 `photo.styleCheck`에 저장. `normalizePhoto`에 필드 추가. `queueUpdate`로 IndexedDB 기록.
+- **결과 카드 렌더** — `renderStyleCheckCard()`가 info 패널 상단에 카드 형태로 출력. 점수 큼직하게 + 색상/실루엣 뱃지 + 코멘트 + 💡제안 + 분석 시각 + "다시 검사" 버튼. 로딩 상태는 스피너. OOTD 외에는 숨김.
+- **예외 처리** — 키 없을 때: 토스트 안내 + 자동 설정 열기. API 에러: 토스트 + 기존 결과 유지. 중복 호출 방지: `styleCheckInFlight` 플래그.
+
 ### 28. v3.3 — 홈 화면 고도화 + 앱 이름 MyStyle로 변경
 **프롬프트**: "메인화면도 고도화가 필요해 보여 시작하기 누르자마자 카메라가 바로 팍 나오니까 당황스럽네 / 상대방이 보는 내 모습 기록하기, 오늘의 스타일 기록하기 등으로 나누는것이 좋아보여 진행하지말고 회의모드로 대답해줘 / 제 추천 다 동의, 앱 이름 MyStyle 로 변경, 추가 디테일은 너가 알아서 해줘"
 **수정 파일**: `docs/index.html`, `docs/app.js`, `docs/manifest.json`
