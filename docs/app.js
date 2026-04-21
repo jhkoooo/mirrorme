@@ -302,9 +302,15 @@ async function loadCocoModel() {
 }
 
 // 반환값: 'none' | 'partial' | 'full' | null
-// 'partial' = 사람은 있지만 bbox가 이미지 높이의 FULL_HEIGHT_RATIO 미만 (전신이 덜 찍힘)
-// 'full'    = 사람 bbox가 충분한 크기 (상·하체 대부분 보임)
+// 전신 판정은 3개 기준 AND:
+//   - 높이 비율 (height / imageH) >= FULL_HEIGHT_RATIO  → 상·하체 대부분 보임
+//   - 너비 비율 (width / imageW)  >= FULL_WIDTH_RATIO   → 팔·다리만 세로로 잡힌 케이스 차단
+//   - 종횡비 (height / width)      in [ASPECT_MIN, ASPECT_MAX] → 사람 전신의 전형적 비율
+// 하나라도 미달 → 'partial' (하늘색, 저장 거부, "전신이 보이도록 맞춰주세요")
 const FULL_HEIGHT_RATIO = 0.65;
+const FULL_WIDTH_RATIO  = 0.18;
+const ASPECT_MIN        = 1.3;
+const ASPECT_MAX        = 4.2;
 async function detectPersonOnCanvas(canvas) {
   if (!cocoModel) return null;
   try {
@@ -312,10 +318,20 @@ async function detectPersonOnCanvas(canvas) {
     const persons = predictions.filter(p => p.class === 'person' && p.score > 0.5);
     if (persons.length === 0) return 'none';
     const imgH = canvas.height || 1;
-    // 가장 큰 사람 bbox 기준
+    const imgW = canvas.width  || 1;
+    // 가장 큰 사람(높이 기준) bbox로 판정
     const biggest = persons.reduce((a, b) => (b.bbox[3] > a.bbox[3] ? b : a));
-    const heightRatio = biggest.bbox[3] / imgH;
-    return heightRatio >= FULL_HEIGHT_RATIO ? 'full' : 'partial';
+    const bw = biggest.bbox[2] || 1;
+    const bh = biggest.bbox[3] || 1;
+    const heightRatio = bh / imgH;
+    const widthRatio  = bw / imgW;
+    const aspect      = bh / bw;
+    const isFull =
+      heightRatio >= FULL_HEIGHT_RATIO &&
+      widthRatio  >= FULL_WIDTH_RATIO &&
+      aspect      >= ASPECT_MIN &&
+      aspect      <= ASPECT_MAX;
+    return isFull ? 'full' : 'partial';
   } catch (e) {
     console.error('[MyStyle] 사람 감지 실패:', e);
     return null;
