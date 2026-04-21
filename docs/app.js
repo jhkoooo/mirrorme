@@ -99,7 +99,7 @@ let toastTimer = null;
 
 // 스타일 검사 관련
 const GEMINI_KEY_STORAGE = 'mystyle_gemini_api_key';
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
 let styleCheckInFlight = false;
 
@@ -1404,7 +1404,14 @@ async function callGeminiVision(apiKey, blob) {
   });
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    throw new Error('API ' + res.status + ': ' + errText.slice(0, 200));
+    // 가능하면 JSON에서 message만 뽑아 간결하게
+    let msg = errText;
+    try {
+      const j = JSON.parse(errText);
+      if (j && j.error && j.error.message) msg = j.error.message;
+    } catch (_) {}
+    console.error('[MyStyle] Gemini API 에러 전문:', errText);
+    throw new Error('API ' + res.status + ': ' + String(msg).slice(0, 240));
   }
   const data = await res.json();
   const text = data && data.candidates && data.candidates[0]
@@ -1486,7 +1493,13 @@ async function runStyleCheck() {
     toast('분석 완료');
   } catch (err) {
     console.error('[MyStyle] 스타일 검사 실패:', err);
-    toast('분석 실패: ' + (err && err.message ? err.message.slice(0, 60) : ''));
+    const msg = (err && err.message) ? err.message : '알 수 없는 오류';
+    // 429는 안내 메시지 추가
+    if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
+      toast('쿼터 초과(429). 1~2분 후 다시 시도해 주세요', 4500);
+    } else {
+      toast('분석 실패: ' + msg.slice(0, 140), 5000);
+    }
     renderStyleCheckCard();
   } finally {
     styleCheckInFlight = false;
