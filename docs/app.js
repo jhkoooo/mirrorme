@@ -109,9 +109,10 @@ let toastTimer = null;
 // 스타일 검사 관련
 const GEMINI_KEY_STORAGE  = 'mystyle_gemini_api_key';
 const TONE_STORAGE        = 'mystyle_ai_tone';                 // 'friendly' | 'balanced' | 'expert'
-// Flash Lite: 무료 티어 일일 한도가 더 넉넉 (약 1000 RPD). Vision 지원.
-// 일반 Flash(2.5)의 일일 한도(약 250 RPD)가 개발·테스트 반복 시 빠르게 소진되어 교체.
-const GEMINI_MODEL = 'gemini-2.5-flash-lite';
+// gemini-2.0-flash: 무료 일일 한도 약 1500 RPD, Vision 지원, 응답이 풍부.
+// 2.5-flash(250 RPD)는 테스트 반복 시 빠르게 소진. Flash Lite(1000 RPD)는 응답을
+// 과도하게 축약해 tags 누락 경향이 있어 2.0-flash가 균형점.
+const GEMINI_MODEL = 'gemini-2.0-flash';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
 let styleCheckInFlight = false;
 
@@ -1550,7 +1551,32 @@ function buildStyleCheckPrompt(tone, context) {
     '- colorBalance / silhouetteBalance: "상"=조화롭고 포인트 명확, "중"=무난, "하"=부조화·어색.',
     '- comment: 40자 이내 종합 한 줄 평. 구체적·관찰 기반.',
     '- suggestion: 40자 이내 개선 제안 1가지. "모든 게 완벽"이면 빈 문자열.',
-    '- tags: 사진에 **보이는 아이템을 간단히 묘사**. 예: "흰색 옥스퍼드 셔츠", "진청 데님", "흰색 스니커즈". brandGuess와 역할이 다름 — tags는 아이템 자체 외형 묘사, brandGuess는 브랜드 추정. 사진에 실제로 보이는 카테고리는 반드시 채울 것. 해당 항목이 사진에 없을 때만(예: 아우터 없이 반팔) 빈 문자열.',
+    '- tags: 사진에 **보이는 아이템을 간단히 묘사**. brandGuess와 역할이 다름 — tags는 아이템 자체 외형 묘사(색·재질·핏), brandGuess는 브랜드 추정. 사진에 실제로 보이는 카테고리는 반드시 채울 것. 해당 항목이 사진에 없을 때만(예: 아우터 없이 반팔) 빈 문자열.',
+    '',
+    '[예시 응답 — 이 형식과 채워진 정도를 반드시 따를 것]',
+    '{',
+    '  "score": 7,',
+    '  "colorBalance": "상",',
+    '  "silhouetteBalance": "중",',
+    '  "comment": "무채색 톤의 클래식한 캐주얼 조합",',
+    '  "suggestion": "신발·액세서리에 포인트 컬러 추천",',
+    '  "contextFit": "",',
+    '  "tags": {',
+    '    "top": "흰색 옥스퍼드 셔츠",',
+    '    "bottom": "진청 데님 팬츠",',
+    '    "shoes": "흰색 레더 스니커즈",',
+    '    "outer": "",',
+    '    "accessory": "블랙 가죽 시계"',
+    '  },',
+    '  "brandGuess": [',
+    '    { "item": "상의", "brand": "COS", "tier": "컨템포러리", "confidence": "medium" },',
+    '    { "item": "하의", "brand": "", "tier": "기타", "confidence": "low" },',
+    '    { "item": "신발", "brand": "Nike", "tier": "스트리트", "confidence": "high" },',
+    '    { "item": "액세서리", "brand": "", "tier": "기타", "confidence": "low" }',
+    '  ]',
+    '}',
+    '',
+    '위 예시처럼 tags는 보이는 아이템마다 반드시 묘사를 담고, brandGuess는 보이는 아이템마다 하나의 객체를 배열에 포함해야 한다.',
     '- brandGuess: 아이템별 추정 브랜드 배열. 로고 명확 → confidence="high", 디자인·디테일·소재로 추정 → "medium", 전혀 모르겠음 → brand="" (빈 문자열) 그리고 confidence="low". 억지 추정 금지.',
     '- brandGuess[].tier: 다음 중 정확히 하나 — "하이엔드" / "컨템포러리" / "도메스틱" / "SPA" / "스트리트" / "기타". 모르면 "기타".',
     '- brandGuess[].item: 다음 중 정확히 하나 — "상의" / "하의" / "신발" / "아우터" / "액세서리". 해당 없으면 아예 배열에서 빼세요.',
