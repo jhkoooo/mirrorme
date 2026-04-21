@@ -1512,6 +1512,29 @@ function blobToBase64(blob) {
 
 async function callGeminiVision(apiKey, blob) {
   const b64 = await blobToBase64(blob);
+  // responseSchema로 응답 JSON 구조를 강제해 "Unterminated string" 같은 파싱 오류 방지.
+  const responseSchema = {
+    type: 'object',
+    properties: {
+      score: { type: 'integer' },
+      colorBalance: { type: 'string', enum: ['상', '중', '하'] },
+      silhouetteBalance: { type: 'string', enum: ['상', '중', '하'] },
+      comment: { type: 'string' },
+      suggestion: { type: 'string' },
+      tags: {
+        type: 'object',
+        properties: {
+          top:       { type: 'string' },
+          bottom:    { type: 'string' },
+          shoes:     { type: 'string' },
+          outer:     { type: 'string' },
+          accessory: { type: 'string' },
+        },
+        required: ['top', 'bottom', 'shoes', 'outer', 'accessory'],
+      },
+    },
+    required: ['score', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'tags'],
+  };
   const body = {
     contents: [{
       parts: [
@@ -1521,8 +1544,9 @@ async function callGeminiVision(apiKey, blob) {
     }],
     generationConfig: {
       response_mime_type: 'application/json',
+      response_schema: responseSchema,
       temperature: 0.4,
-      maxOutputTokens: 600,
+      maxOutputTokens: 1024,
     },
   };
   const res = await fetch(GEMINI_ENDPOINT + '?key=' + encodeURIComponent(apiKey), {
@@ -1555,7 +1579,14 @@ function parseStyleCheckJson(text) {
   const start = s.indexOf('{');
   const end = s.lastIndexOf('}');
   if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  const obj = JSON.parse(s);
+  let obj;
+  try {
+    obj = JSON.parse(s);
+  } catch (e) {
+    // 응답 일부를 콘솔에 기록해 원인 진단 가능하게
+    console.error('[MyStyle] JSON 파싱 실패. 원문:', text.slice(0, 500));
+    throw new Error('응답 파싱 실패 — ' + (e.message || ''));
+  }
   // 필드 검증 + 정규화
   const score = Math.max(1, Math.min(10, parseInt(obj.score, 10) || 0));
   const pick = (v, def) => (v === '상' || v === '중' || v === '하') ? v : def;
