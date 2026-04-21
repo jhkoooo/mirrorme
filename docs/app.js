@@ -109,7 +109,9 @@ let toastTimer = null;
 // 스타일 검사 관련
 const GEMINI_KEY_STORAGE  = 'mystyle_gemini_api_key';
 const TONE_STORAGE        = 'mystyle_ai_tone';                 // 'friendly' | 'balanced' | 'expert'
-const GEMINI_MODEL = 'gemini-2.5-flash';
+// Flash Lite: 무료 티어 일일 한도가 더 넉넉 (약 1000 RPD). Vision 지원.
+// 일반 Flash(2.5)의 일일 한도(약 250 RPD)가 개발·테스트 반복 시 빠르게 소진되어 교체.
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
 let styleCheckInFlight = false;
 
@@ -1807,9 +1809,22 @@ async function runStyleCheck(contextStr) {
     const msg = (err && err.message) ? err.message : '알 수 없는 오류';
     // 429(쿼터) / 503(혼잡) 안내 메시지 분기
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
-      toast('쿼터 초과(429). 1~2분 후 다시 시도해 주세요', 4500);
+      // 서버 메시지에 "day"/"daily"가 있으면 일일 한도, "minute"/"RPM"이면 분당 한도
+      const isDaily  = /\b(day|daily|per day|RequestsPerDay)\b/i.test(msg);
+      const isMinute = /\b(minute|per minute|RPM)\b/i.test(msg);
+      let hint;
+      if (isDaily) {
+        hint = '일일 한도 초과. 내일 다시 시도하거나 다른 API 키 사용 필요';
+      } else if (isMinute) {
+        hint = '분당 한도 초과. 1분 후 다시 시도해 주세요';
+      } else {
+        hint = '쿼터 초과. 잠시 후 다시 시도해 주세요';
+      }
+      toast(hint, 5500);
     } else if (msg.indexOf('503') >= 0 || msg.indexOf('overload') >= 0) {
       toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
+    } else if (msg.indexOf('파싱') >= 0) {
+      toast('응답이 깨져 재시도가 필요해요', 4500);
     } else {
       toast('분석 실패: ' + msg.slice(0, 140), 5000);
     }
