@@ -7,7 +7,7 @@
 // - 무음 사진 촬영 (canvas 캡처)
 // - 앱 내 갤러리 (IndexedDB), 날짜·요일별 그룹
 // - 사진 상세: 메모 / 카테고리 태그(상의·하의·신발·아우터·액세서리) / 하트 즐겨찾기
-// - 후면 카메라 촬영 시 COCO-SSD로 사람 감지 → 본인이 없는 사진은 저장 거부
+// - 후면 카메라 촬영 시 MoveNet으로 전신 판정 → 팔만·상반신만은 저장 거부
 //
 // 데이터 모델 (IndexedDB photos store)
 //   { id, blob, timestamp, facing, memo, tags{top,bottom,shoes,outer,accessory}, favorite }
@@ -213,7 +213,7 @@ async function enterCameraMode(mode) {
     cameraTopBar.classList.remove('hidden');
     setTimeout(() => home.classList.add('hidden'), 300);
     updateGalleryBtnThumb();
-    loadCocoModel();
+    loadPoseModel();
   } catch (err) {
     home.classList.remove('fading');
     console.error(err);
@@ -264,36 +264,45 @@ flipBtn.addEventListener('click', async () => {
 });
 
 // ============================================================
-//  사람 감지 (COCO-SSD)
+//  전신 판정 (MoveNet — 신체 키포인트)
 // ============================================================
-let cocoModel = null;
+// MoveNet SinglePose Lightning 모델로 17개 신체 키포인트를 감지하여,
+// 어깨·엉덩이·다리(무릎/발목)가 모두 보이는 경우만 'full'로 판정.
+// 팔이나 손만 찍힌 케이스는 상반신 키포인트가 없어 'partial'로 걸러짐.
+let poseModel = null;
 let modelLoading = false;
 let modelLoadFailed = false;
 
 // 실시간 사람 감지 (OOTD 카메라 화면)
 let detectionInterval = null;
-let lastDetectionResult = null;        // true/false/null
+let lastDetectionResult = null;        // 'none' | 'partial' | 'full' | null
 let bypassDetectionForSession = false; // 모델 실패 시 사용자 승인하에 검증 건너뜀
 const DETECTION_PERIOD_MS = 2000;
 
-async function loadCocoModel() {
-  if (cocoModel || modelLoading || modelLoadFailed) return;
-  if (typeof cocoSsd === 'undefined') {
+// 키포인트 신뢰도 임계치 (이 값 이상이면 "보임"으로 간주)
+const KP_THRESHOLD = 0.3;
+
+async function loadPoseModel() {
+  if (poseModel || modelLoading || modelLoadFailed) return;
+  if (typeof poseDetection === 'undefined') {
     // 라이브러리가 아직 안 로드됨 → 잠시 후 재시도
-    setTimeout(loadCocoModel, 600);
+    setTimeout(loadPoseModel, 600);
     return;
   }
   modelLoading = true;
   try {
-    cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-    console.log('[MyStyle] 사람 감지 모델 로드 완료');
+    poseModel = await poseDetection.createDetector(
+      poseDetection.SupportedModels.MoveNet,
+      { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+    );
+    console.log('[MyStyle] MoveNet 로드 완료');
     updateShutterIndicator();
     // 로드되자마자 첫 감지 수행 (UI 즉시 업데이트)
     if (currentFacing === 'environment' && video.srcObject) {
       runDetection();
     }
   } catch (e) {
-    console.error('[MyStyle] COCO-SSD 로드 실패:', e);
+    console.error('[MyStyle] MoveNet 로드 실패:', e);
     modelLoadFailed = true;
     updateShutterIndicator();
   } finally {
@@ -301,46 +310,44 @@ async function loadCocoModel() {
   }
 }
 
-// 반환값: 'none' | 'partial' | 'full' | null
-// 전신 판정은 3개 기준 AND:
-//   - 높이 비율 (height / imageH) >= FULL_HEIGHT_RATIO  → 상·하체 대부분 보임
-//   - 너비 비율 (width / imageW)  >= FULL_WIDTH_RATIO   → 팔·다리만 세로로 잡힌 케이스 차단
-//   - 종횡비 (height / width)      in [ASPECT_MIN, ASPECT_MAX] → 사람 전신의 전형적 비율
-// 하나라도 미달 → 'partial' (하늘색, 저장 거부, "전신이 보이도록 맞춰주세요")
-const FULL_HEIGHT_RATIO = 0.65;
-const FULL_WIDTH_RATIO  = 0.18;
-const ASPECT_MIN        = 1.3;
-const ASPECT_MAX        = 4.2;
+// 17개 키포인트로 전신 여부 분류
+// - 'full'    = 어깨(좌/우 중 1개) + 엉덩이(좌/우 중 1개) + 다리(무릎 or 발목 중 1개) 모두 존재
+// - 'partial' = 사람은 있지만 상·중·하 중 하나 이상 미충족 (팔만, 얼굴만, 상반신만 등)
+// - 'none'    = 어떤 키포인트도 임계치 이상으로 보이지 않음
+function classifyPose(keypoints) {
+  if (!keypoints || keypoints.length === 0) return 'none';
+  const has = (name) => {
+    const kp = keypoints.find(k => k.name === name);
+    return !!(kp && kp.score >= KP_THRESHOLD);
+  };
+  const anyVisible = keypoints.some(k => k.score >= KP_THRESHOLD);
+  if (!anyVisible) return 'none';
+
+  const hasShoulder  = has('left_shoulder') || has('right_shoulder');
+  const hasHip       = has('left_hip')      || has('right_hip');
+  const hasLowerBody =
+    has('left_knee')  || has('right_knee')  ||
+    has('left_ankle') || has('right_ankle');
+
+  return (hasShoulder && hasHip && hasLowerBody) ? 'full' : 'partial';
+}
+
+// 캔버스에서 포즈 추정 → 'none'/'partial'/'full'/null 반환
 async function detectPersonOnCanvas(canvas) {
-  if (!cocoModel) return null;
+  if (!poseModel) return null;
   try {
-    const predictions = await cocoModel.detect(canvas);
-    const persons = predictions.filter(p => p.class === 'person' && p.score > 0.5);
-    if (persons.length === 0) return 'none';
-    const imgH = canvas.height || 1;
-    const imgW = canvas.width  || 1;
-    // 가장 큰 사람(높이 기준) bbox로 판정
-    const biggest = persons.reduce((a, b) => (b.bbox[3] > a.bbox[3] ? b : a));
-    const bw = biggest.bbox[2] || 1;
-    const bh = biggest.bbox[3] || 1;
-    const heightRatio = bh / imgH;
-    const widthRatio  = bw / imgW;
-    const aspect      = bh / bw;
-    const isFull =
-      heightRatio >= FULL_HEIGHT_RATIO &&
-      widthRatio  >= FULL_WIDTH_RATIO &&
-      aspect      >= ASPECT_MIN &&
-      aspect      <= ASPECT_MAX;
-    return isFull ? 'full' : 'partial';
+    const poses = await poseModel.estimatePoses(canvas, { maxPoses: 1, flipHorizontal: false });
+    if (!poses || poses.length === 0) return 'none';
+    return classifyPose(poses[0].keypoints);
   } catch (e) {
-    console.error('[MyStyle] 사람 감지 실패:', e);
+    console.error('[MyStyle] 포즈 추정 실패:', e);
     return null;
   }
 }
 
 // 주기 감지: video의 현재 프레임을 작은 canvas로 추론 (성능 최적화)
 async function runDetection() {
-  if (!cocoModel) return;
+  if (!poseModel) return;
   if (!video.srcObject) return;
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) return;
@@ -391,7 +398,7 @@ function updateShutterIndicator() {
   } else if (modelLoadFailed) {
     state = 'failed';
     text = 'AI 준비 실패';
-  } else if (!cocoModel) {
+  } else if (!poseModel) {
     state = 'loading';
     text = 'AI 준비 중...';
   } else if (lastDetectionResult === 'full') {
@@ -537,7 +544,7 @@ async function capturePhoto() {
         // 승인 후 계속 진행
       }
       // 2) 모델 로딩 중 → 저장 거부
-      else if (!cocoModel) {
+      else if (!poseModel) {
         toast('AI 준비 중이에요. 잠시 후 다시 시도해 주세요');
         return;
       }

@@ -83,6 +83,20 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 35. v3.5.6 — MoveNet 포즈 감지로 근본 해결 (COCO-SSD 대체)
+**프롬프트**: "바로 MoveNet으로(옵션 B) 진행해줘"
+**수정 파일**: `docs/index.html`, `docs/app.js`
+**내용**: COCO-SSD의 bbox 기반 판정은 구조적으로 한계. 팔을 화면 세로로 길게 찍으면 높이·너비·종횡비 조건을 모두 만족시켜 `full`로 통과되는 문제가 반복됨. 신체 키포인트를 직접 보는 MoveNet으로 완전 대체.
+- **CDN 교체** — `@tensorflow-models/coco-ssd` → `@tensorflow-models/pose-detection@2.1.3`. TensorFlow.js는 그대로 재사용.
+- **모델 교체** — `cocoSsd.load({ base: 'lite_mobilenet_v2' })` → `poseDetection.createDetector(SupportedModels.MoveNet, { modelType: movenet.modelType.SINGLEPOSE_LIGHTNING })`. Lightning 버전은 약 3MB, 빠르고 가벼움.
+- **판정 방식 전환** — bbox 비율(높이/너비/종횡비) 조건 3개 전부 제거. 대신 `classifyPose(keypoints)`가 17개 키포인트를 보고 판단:
+  - 어깨(좌/우 중 1개) + 엉덩이(좌/우 중 1개) + 하체(무릎 or 발목 중 1개) 모두 보이면 → `'full'`
+  - 키포인트 일부만 보이면 → `'partial'` (예: 팔만 있으면 어깨·엉덩이 미충족)
+  - 키포인트가 임계치(`KP_THRESHOLD = 0.3`) 이상 하나도 없으면 → `'none'`
+- **근본 해결** — 팔만 화면에 꽉 찬 구도라도 어깨·엉덩이·다리 키포인트가 없으므로 명확하게 `partial`로 걸러짐. bbox 임계치 튜닝 불필요.
+- **변수·함수 리네임** — `cocoModel` → `poseModel`, `loadCocoModel` → `loadPoseModel`. `detectPersonOnCanvas`는 이름 유지하되 내부 구현을 MoveNet으로 교체 (반환 타입 `'none'|'partial'|'full'|null` 동일).
+- **UI 변경 없음** — 셔터 링 색상, 힌트 텍스트, 상태 머신 그대로. 판정만 정확해짐.
+
 ### 34. v3.5.5 — 전신 판정에 너비·종횡비 추가 (팔 단독 차단)
 **프롬프트**: "사진을 찍기 전 사람감지할 때, 팔 부분만 찍어도 사람이 감지되어 찍히거든? 여기까지 풀어주는게 맞나? / 진행해줘"
 **수정 파일**: `docs/app.js`
