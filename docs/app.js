@@ -1559,17 +1559,32 @@ function buildStyleCheckPrompt(tone, context) {
   ].join('\n');
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onloadend = () => {
-      const s = r.result;
-      const comma = s.indexOf(',');
-      resolve(comma >= 0 ? s.slice(comma + 1) : s);
-    };
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
+async function blobToBase64(blob) {
+  // iOS Safari는 IndexedDB에서 가져온 Blob의 backing store가 분리되면
+  // FileReader.readAsDataURL에서 "The object can not be found here"를 던짐.
+  // arrayBuffer() 쪽이 더 견고하므로 우선 시도하고, 실패 시 FileReader로 폴백.
+  try {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    // 대용량 스택 오버플로 방지를 위해 청크 단위로 String.fromCharCode 호출
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+  } catch (e1) {
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onloadend = () => {
+        const s = r.result;
+        const comma = s.indexOf(',');
+        resolve(comma >= 0 ? s.slice(comma + 1) : s);
+      };
+      r.onerror = () => reject(r.error || e1);
+      r.readAsDataURL(blob);
+    });
+  }
 }
 
 async function callGeminiVision(apiKey, blob, context, tone) {
@@ -1727,8 +1742,12 @@ async function runStyleCheck(contextStr) {
   renderStyleCheckCard({ loading: true });
 
   try {
+    // iOS Safari는 오래된 blob 참조가 분리(detach)되면 접근 불가. 매 분석마다
+    // IndexedDB에서 최신 blob을 다시 읽어와 안전하게 사용.
+    const fresh = await getPhoto(currentViewingPhoto.id);
+    if (!fresh || !fresh.blob) throw new Error('사진을 다시 불러올 수 없습니다');
     const tone = getTone();
-    const result = await callGeminiVision(key, currentViewingPhoto.blob, contextStr, tone);
+    const result = await callGeminiVision(key, fresh.blob, contextStr, tone);
 
     // AI 태그: 비어 있는 필드에만 반영 (사용자 수동 입력 우선)
     const existing = currentViewingPhoto.tags || {};

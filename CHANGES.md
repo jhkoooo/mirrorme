@@ -83,6 +83,13 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 40. v3.7.2 — iOS Safari blob 분리 오류 수정 (재분석 에러)
+**프롬프트**: "분석을 하고 모드를 다른모드로 바꾸고 분석했던걸 재분석하려니까 분석 실패 : The object can not be found here. 에러발생"
+**수정 파일**: `docs/app.js`
+**내용**: 분석 후 카메라 모드 전환 등으로 시간이 지난 뒤 같은 사진을 재분석하면 에러. "The object can not be found here"는 **Gemini 에러가 아니라 iOS Safari의 DOMException** — IndexedDB에서 가져온 Blob의 backing store가 내부적으로 분리(detach)된 상태에서 `FileReader.readAsDataURL`을 호출해 발생한 것. (v3.7.1에서 동일 문구 에러를 Gemini 스키마 문제로 오판해 수정했는데, 이번엔 런타임 영역 문제로 별개 원인.)
+- **`runStyleCheck()`에 fresh 재조회** — `currentViewingPhoto`의 stale blob 대신 매 분석마다 `getPhoto(id)`로 IndexedDB에서 최신 blob을 읽어 사용
+- **`blobToBase64()` 강화** — `blob.arrayBuffer()` 우선 시도 (FileReader보다 안정적). 실패 시 기존 FileReader 방식으로 폴백. 대용량 blob 대비 청크 단위 처리로 스택 오버플로 방지.
+
 ### 39. v3.7.1 — Gemini 스키마 호환 오류 수정 ("The object can not be found here")
 **프롬프트**: "분석실패 : The object can not be found here. 라고 뜬다 그 외에도 분석실패 다른문구도 떴었어"
 **수정 파일**: `docs/app.js`
