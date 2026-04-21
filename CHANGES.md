@@ -83,6 +83,17 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 43. v3.7.5 — blob 3단 폴백 + tags 누락 수정
+**프롬프트**: "처음에 검사하니까 잘 되었는데 다시검사시에 분석실패 : object can not be found here 발생 / 전문가모드로 바꿨는데 ... 상의, 하의 어떤건지 판단해주는 옵션이 안나오네?"
+**수정 파일**: `docs/app.js`
+**내용**:
+- **`blobToBase64` 3단 폴백 체인**
+  1. `blob.arrayBuffer()` (v3.7.2)
+  2. `URL.createObjectURL + fetch` ← iOS Safari에서 IndexedDB 분리 blob에도 잘 동작
+  3. `FileReader.readAsDataURL` (최후)
+  각 단계 실패 시 콘솔에 경고만 출력하고 다음으로 진행. `bufferToBase64` 헬퍼 분리.
+- **프롬프트 tags 강화** — Flash Lite가 가벼운 모델 특성상 brandGuess가 있으면 tags를 빈 문자열로 생략하는 경향이 있어서, `tags`와 `brandGuess`의 역할 차이를 명시하고 **"사진에 실제로 보이는 카테고리는 반드시 채울 것"** 강조. tags는 아이템 외형 묘사(예: "흰색 옥스퍼드 셔츠"), brandGuess는 브랜드 추정이라는 구분 추가.
+
 ### 42. v3.7.4 — Gemini 모델 Flash Lite 교체 + 429 세분화
 **프롬프트**: "쿼터 초과 429 뜨네 1~2분 이따 다시 시도하라는데 1~2분 후에 해도 동일해"
 **수정 파일**: `docs/app.js`

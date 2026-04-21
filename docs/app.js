@@ -1550,7 +1550,7 @@ function buildStyleCheckPrompt(tone, context) {
     '- colorBalance / silhouetteBalance: "상"=조화롭고 포인트 명확, "중"=무난, "하"=부조화·어색.',
     '- comment: 40자 이내 종합 한 줄 평. 구체적·관찰 기반.',
     '- suggestion: 40자 이내 개선 제안 1가지. "모든 게 완벽"이면 빈 문자열.',
-    '- tags: 각 카테고리별 짧은 한국어 묘사. 해당 없음이면 빈 문자열.',
+    '- tags: 사진에 **보이는 아이템을 간단히 묘사**. 예: "흰색 옥스퍼드 셔츠", "진청 데님", "흰색 스니커즈". brandGuess와 역할이 다름 — tags는 아이템 자체 외형 묘사, brandGuess는 브랜드 추정. 사진에 실제로 보이는 카테고리는 반드시 채울 것. 해당 항목이 사진에 없을 때만(예: 아우터 없이 반팔) 빈 문자열.',
     '- brandGuess: 아이템별 추정 브랜드 배열. 로고 명확 → confidence="high", 디자인·디테일·소재로 추정 → "medium", 전혀 모르겠음 → brand="" (빈 문자열) 그리고 confidence="low". 억지 추정 금지.',
     '- brandGuess[].tier: 다음 중 정확히 하나 — "하이엔드" / "컨템포러리" / "도메스틱" / "SPA" / "스트리트" / "기타". 모르면 "기타".',
     '- brandGuess[].item: 다음 중 정확히 하나 — "상의" / "하의" / "신발" / "아우터" / "액세서리". 해당 없으면 아예 배열에서 빼세요.',
@@ -1561,32 +1561,50 @@ function buildStyleCheckPrompt(tone, context) {
   ].join('\n');
 }
 
+function bufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 async function blobToBase64(blob) {
   // iOS Safari는 IndexedDB에서 가져온 Blob의 backing store가 분리되면
   // FileReader.readAsDataURL에서 "The object can not be found here"를 던짐.
-  // arrayBuffer() 쪽이 더 견고하므로 우선 시도하고, 실패 시 FileReader로 폴백.
+  // 3단 fallback으로 안정성 확보.
+  // 1) blob.arrayBuffer() — 가장 빠르지만 분리된 blob엔 실패
   try {
     const buf = await blob.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    // 대용량 스택 오버플로 방지를 위해 청크 단위로 String.fromCharCode 호출
-    let binary = '';
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return btoa(binary);
+    return bufferToBase64(buf);
   } catch (e1) {
-    return await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onloadend = () => {
-        const s = r.result;
-        const comma = s.indexOf(',');
-        resolve(comma >= 0 ? s.slice(comma + 1) : s);
-      };
-      r.onerror = () => reject(r.error || e1);
-      r.readAsDataURL(blob);
-    });
+    console.warn('[MyStyle] arrayBuffer 실패, objectURL fetch로 폴백:', e1 && e1.message);
   }
+  // 2) URL.createObjectURL + fetch — Safari에서 IndexedDB blob에 대해 더 안정적
+  let url = null;
+  try {
+    url = URL.createObjectURL(blob);
+    const res = await fetch(url);
+    const buf = await res.arrayBuffer();
+    return bufferToBase64(buf);
+  } catch (e2) {
+    console.warn('[MyStyle] objectURL fetch 실패, FileReader로 폴백:', e2 && e2.message);
+  } finally {
+    if (url) { try { URL.revokeObjectURL(url); } catch (_) {} }
+  }
+  // 3) FileReader — 최후 수단
+  return await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onloadend = () => {
+      const s = r.result;
+      const comma = s.indexOf(',');
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    r.onerror = () => reject(r.error || new Error('blob 접근 실패'));
+    r.readAsDataURL(blob);
+  });
 }
 
 // 503(overload)·일부 5xx는 자동 재시도. exponential backoff로 사용자가 수동으로
