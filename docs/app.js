@@ -1587,6 +1587,31 @@ async function blobToBase64(blob) {
   }
 }
 
+// 503(overload)·일부 5xx는 자동 재시도. exponential backoff로 사용자가 수동으로
+// 여러 번 누르던 동작을 앱이 대신 수행. 429(쿼터)는 여기서 재시도 안 함(기다려야 함).
+async function callGeminiVisionWithRetry(apiKey, blob, context, tone, onRetry) {
+  const DELAYS = [700, 1500, 2500]; // ms, 최대 3회 재시도
+  let lastErr;
+  for (let attempt = 0; attempt <= DELAYS.length; attempt++) {
+    try {
+      return await callGeminiVision(apiKey, blob, context, tone);
+    } catch (err) {
+      lastErr = err;
+      const msg = (err && err.message) ? err.message : '';
+      const isRetryable =
+        msg.indexOf('503') >= 0 ||
+        msg.indexOf('502') >= 0 ||
+        msg.indexOf('overload') >= 0 ||
+        msg.indexOf('UNAVAILABLE') >= 0;
+      if (!isRetryable) throw err;
+      if (attempt === DELAYS.length) throw err;
+      if (typeof onRetry === 'function') onRetry(attempt + 1, DELAYS.length);
+      await new Promise(r => setTimeout(r, DELAYS[attempt]));
+    }
+  }
+  throw lastErr;
+}
+
 async function callGeminiVision(apiKey, blob, context, tone) {
   const b64 = await blobToBase64(blob);
   // Gemini는 구식 OpenAPI 서브셋만 안정적으로 지원. 한국어 enum과 부분 required 조합에서
@@ -1747,7 +1772,10 @@ async function runStyleCheck(contextStr) {
     const fresh = await getPhoto(currentViewingPhoto.id);
     if (!fresh || !fresh.blob) throw new Error('사진을 다시 불러올 수 없습니다');
     const tone = getTone();
-    const result = await callGeminiVision(key, fresh.blob, contextStr, tone);
+    const result = await callGeminiVisionWithRetry(
+      key, fresh.blob, contextStr, tone,
+      (n, total) => renderStyleCheckCard({ loading: true, retry: { n, total } })
+    );
 
     // AI 태그: 비어 있는 필드에만 반영 (사용자 수동 입력 우선)
     const existing = currentViewingPhoto.tags || {};
@@ -1777,9 +1805,11 @@ async function runStyleCheck(contextStr) {
   } catch (err) {
     console.error('[MyStyle] 스타일 검사 실패:', err);
     const msg = (err && err.message) ? err.message : '알 수 없는 오류';
-    // 429는 안내 메시지 추가
+    // 429(쿼터) / 503(혼잡) 안내 메시지 분기
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
       toast('쿼터 초과(429). 1~2분 후 다시 시도해 주세요', 4500);
+    } else if (msg.indexOf('503') >= 0 || msg.indexOf('overload') >= 0) {
+      toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
     } else {
       toast('분석 실패: ' + msg.slice(0, 140), 5000);
     }
@@ -1807,8 +1837,13 @@ function renderStyleCheckCard(opts) {
   styleCheckCard.classList.toggle('loading', loading);
 
   if (loading) {
+    const retry = opts && opts.retry;
+    const retryText = retry
+      ? '모델 혼잡으로 재시도 중 (' + retry.n + '/' + retry.total + ')'
+      : '스타일 분석 중...';
     styleCheckCard.innerHTML =
-      '<div class="styleCheckLoading"><div class="spinner"></div><span>스타일 분석 중...</span></div>';
+      '<div class="styleCheckLoading"><div class="spinner"></div><span></span></div>';
+    styleCheckCard.querySelector('.styleCheckLoading span').textContent = retryText;
     return;
   }
 
