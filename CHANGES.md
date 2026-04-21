@@ -83,6 +83,15 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 39. v3.7.1 — Gemini 스키마 호환 오류 수정 ("The object can not be found here")
+**프롬프트**: "분석실패 : The object can not be found here. 라고 뜬다 그 외에도 분석실패 다른문구도 떴었어"
+**수정 파일**: `docs/app.js`
+**내용**: v3.7 도입한 `response_schema`에 한국어 enum(`['상','중','하']`, `['하이엔드','컨템포러리',...]`)과 부분 `required` 조합이 있었는데, Gemini가 구식 OpenAPI 서브셋만 안정적으로 지원해 일부 케이스에서 `The object can not be found here` 에러 반환.
+- **enum 전부 제거** — 값 제약은 프롬프트 가이드 + `parseStyleCheckJson` 정규화 단계(`VALID_ITEM`/`VALID_TIER`/`VALID_CONF`)로 이관
+- **required 완전화** — `brandGuess.items`와 최상위 모두 모든 필드를 required로 설정 (부분 required 시 파싱 애매성 제거)
+- **brand null 정책 변경** — null 대신 빈 문자열(`""`)로. 프롬프트에도 "확신 없으면 빈 문자열"로 명시. 파싱 단계에서 빈 문자열 → `null`로 변환(UI 표시 시 `—`).
+- **필터링 조정** — 아이템이 잘못된 값이면 해당 브랜드 항목 제외. 기존 "기타" 폴백은 부정확하므로 제거.
+
 ### 38. v3.7 — AI 스타일 검사 확장 (맥락·톤·브랜드)
 **프롬프트**: "내가 이 앱을 만드는 이유 중 하나가, 패션에 대해 아무것도 모르는사람들이 ... 소개팅룩으로 이런식으로 입었는데 어때? ... 브랜드명까지 나오면 더 좋아할거같아 ... / Phase 1~3까지 진행"
 **수정 파일**: `docs/index.html`, `docs/app.js`

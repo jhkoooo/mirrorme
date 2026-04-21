@@ -1549,12 +1549,13 @@ function buildStyleCheckPrompt(tone, context) {
     '- comment: 40자 이내 종합 한 줄 평. 구체적·관찰 기반.',
     '- suggestion: 40자 이내 개선 제안 1가지. "모든 게 완벽"이면 빈 문자열.',
     '- tags: 각 카테고리별 짧은 한국어 묘사. 해당 없음이면 빈 문자열.',
-    '- brandGuess: 아이템별 추정 브랜드. 로고가 명확히 보이면 confidence="high", 디자인·디테일·소재로 추정하면 "medium", 전혀 모르겠으면 브랜드는 null로. 억지 추정 금지.',
-    '- brandGuess[].tier: "하이엔드" / "컨템포러리" / "도메스틱" / "SPA" / "스트리트" / "기타" 중 하나. 모르면 "기타".',
-    '- brandGuess[].item: "상의" / "하의" / "신발" / "아우터" / "액세서리" 중 하나.',
+    '- brandGuess: 아이템별 추정 브랜드 배열. 로고 명확 → confidence="high", 디자인·디테일·소재로 추정 → "medium", 전혀 모르겠음 → brand="" (빈 문자열) 그리고 confidence="low". 억지 추정 금지.',
+    '- brandGuess[].tier: 다음 중 정확히 하나 — "하이엔드" / "컨템포러리" / "도메스틱" / "SPA" / "스트리트" / "기타". 모르면 "기타".',
+    '- brandGuess[].item: 다음 중 정확히 하나 — "상의" / "하의" / "신발" / "아우터" / "액세서리". 해당 없으면 아예 배열에서 빼세요.',
+    '- brandGuess[].confidence: 다음 중 정확히 하나 — "high" / "medium" / "low" (영문 소문자).',
     '- contextFit: 맥락이 주어졌을 때 그 상황에 얼마나 어울리는지 한 줄 (30자 이내). 맥락 없으면 빈 문자열.',
     '',
-    '브랜드 언급 시 완곡하게("~로 보입니다", "~스러운"). 확신 없으면 null을 쓰세요.',
+    '브랜드 언급 시 완곡하게("~로 보입니다", "~스러운"). 확신 없으면 brand는 빈 문자열로 두세요.',
   ].join('\n');
 }
 
@@ -1573,16 +1574,18 @@ function blobToBase64(blob) {
 
 async function callGeminiVision(apiKey, blob, context, tone) {
   const b64 = await blobToBase64(blob);
-  // responseSchema로 응답 JSON 구조를 강제
+  // Gemini는 구식 OpenAPI 서브셋만 안정적으로 지원. 한국어 enum과 부분 required 조합에서
+  // "The object can not be found here" 에러가 나는 케이스가 있어 스키마를 단순화하고
+  // 값 제약은 프롬프트 + 파싱 단계 정규화로 유도한다.
   const responseSchema = {
     type: 'object',
     properties: {
-      score: { type: 'integer' },
-      colorBalance: { type: 'string', enum: ['상', '중', '하'] },
-      silhouetteBalance: { type: 'string', enum: ['상', '중', '하'] },
-      comment: { type: 'string' },
-      suggestion: { type: 'string' },
-      contextFit: { type: 'string' },
+      score:             { type: 'integer' },
+      colorBalance:      { type: 'string' },
+      silhouetteBalance: { type: 'string' },
+      comment:           { type: 'string' },
+      suggestion:        { type: 'string' },
+      contextFit:        { type: 'string' },
       tags: {
         type: 'object',
         properties: {
@@ -1599,16 +1602,16 @@ async function callGeminiVision(apiKey, blob, context, tone) {
         items: {
           type: 'object',
           properties: {
-            item:       { type: 'string', enum: ['상의', '하의', '신발', '아우터', '액세서리'] },
+            item:       { type: 'string' },
             brand:      { type: 'string' },
-            tier:       { type: 'string', enum: ['하이엔드', '컨템포러리', '도메스틱', 'SPA', '스트리트', '기타'] },
-            confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+            tier:       { type: 'string' },
+            confidence: { type: 'string' },
           },
-          required: ['item', 'tier', 'confidence'],
+          required: ['item', 'brand', 'tier', 'confidence'],
         },
       },
     },
-    required: ['score', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'tags', 'brandGuess'],
+    required: ['score', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'contextFit', 'tags', 'brandGuess'],
   };
   const prompt = buildStyleCheckPrompt(tone || 'balanced', context || '');
   const body = {
@@ -1668,12 +1671,14 @@ function parseStyleCheckJson(text) {
   const VALID_CONF = ['high','medium','low'];
   const tags = (obj.tags && typeof obj.tags === 'object') ? obj.tags : {};
   const rawBrands = Array.isArray(obj.brandGuess) ? obj.brandGuess : [];
-  const brandGuess = rawBrands.map(b => ({
-    item:       VALID_ITEM.includes(b.item) ? b.item : '기타',
-    brand:      (typeof b.brand === 'string' && b.brand.trim()) ? b.brand.trim().slice(0, 40) : null,
-    tier:       VALID_TIER.includes(b.tier) ? b.tier : '기타',
-    confidence: VALID_CONF.includes(b.confidence) ? b.confidence : 'low',
-  })).filter(b => VALID_ITEM.includes(b.item));
+  const brandGuess = rawBrands
+    .map(b => ({
+      item:       VALID_ITEM.includes(b.item) ? b.item : null,
+      brand:      (typeof b.brand === 'string' && b.brand.trim()) ? b.brand.trim().slice(0, 40) : null,
+      tier:       VALID_TIER.includes(b.tier) ? b.tier : '기타',
+      confidence: VALID_CONF.includes(b.confidence) ? b.confidence : 'low',
+    }))
+    .filter(b => b.item !== null);
 
   return {
     score,
