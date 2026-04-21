@@ -83,6 +83,23 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 31. v3.5.2 — 엄격 모드 + 실시간 사람 감지 힌트
+**프롬프트**: "제 추천: C + 셔터 링 색상 (아래 테두리) + 실패 시 1회 경고 후 허용 토글. 가장 간결하고 정보량 충분. 이렇게 해주고 그럼 카메라비출때 사람 실루엣이라도 잡는걸 넣는게 낫지않아? / 다 동의"
+**수정 파일**: `docs/index.html`, `docs/app.js`
+**내용**: OOTD 촬영 시 "모델 로딩 중 양심 폴백" 때문에 앱 켜자마자 사물 사진도 저장되던 문제를 해결하고, 동시에 카메라 보는 동안 사람이 감지되는지 실시간 힌트를 노출.
+- **실시간 감지 루프** — 후면(OOTD) 카메라 진입 시 2초 주기로 video 프레임을 320px 축소 canvas에 그려 COCO-SSD 추론. `runDetection()` → `lastDetectionResult` 업데이트 → UI 반영. 홈/갤러리/MyFace 전환 시 `stopRealtimeDetection()`로 `clearInterval`.
+- **셔터 링 하단 색상 인디케이터** — `#shutterBtn[data-state]` 속성에 따라 `border-bottom-color` 변경:
+  - `loading` = 회색 / `person` = 초록(#32d74b) / `noperson` = 빨강(#ff453a) / `failed`·`bypass` = 주황(#ff9f0a)
+  - `transition: border-color 220ms ease`로 부드럽게 전환
+- **셔터 위 상태 라벨** — `#captureHint`에 상태 텍스트 + 색상 매칭. "AI 준비 중... / 사람 감지됨 / 사람이 감지되지 않아요 / AI 준비 실패 / AI 감지 비활성".
+- **엄격 모드 (capturePhoto)** — OOTD 촬영 시:
+  - 모델 로드 실패 → 1회 `confirm()` 모달로 "검증 없이 저장?" 물어보고 승인하면 `bypassDetectionForSession = true` (앱 재시작 전까지 계속 허용)
+  - 모델 로딩 중 → 저장 거부 + 토스트 "AI 준비 중이에요. 잠시 후 다시"
+  - 모델 준비됨 → 촬영 순간 다시 검증, 사람 없으면 저장 거부
+- **MyFace는 영향 없음** — 전면 모드에선 `data-state` 제거 + 힌트 숨김.
+- **updateCaptureHint → updateShutterIndicator로 통합**. 기존 "본인 스타일만 기록" 단순 안내를 상태 머신으로 확장.
+- **성능** — 320×180 축소로 추론해 iPhone에서 프레임당 약 100~200ms. 2초 주기라 배터리·발열 부담 적음.
+
 ### 30. v3.5.1 — 429 에러 대응 (모델 변경 + 상세 에러)
 **프롬프트**: "분석실패 : API 429 : { \"error\" : \"code\": \"429\", message: \"you\"} 이런식으로 뜨는데?"
 **수정 파일**: `docs/app.js`

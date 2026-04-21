@@ -135,6 +135,7 @@
       backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
       box-shadow: 0 2px 14px rgba(0,0,0,0.4);
       position: relative;
+      transition: border-color 220ms ease;
     }
     #shutterBtn::after {
       content: '';
@@ -145,6 +146,12 @@
     }
     #shutterBtn:active { transform: scale(0.93); }
     #shutterBtn:active::after { background: #ddd; }
+    /* 셔터 링 하단 색상으로 감지 상태 표시 (OOTD 모드 전용) */
+    #shutterBtn[data-state="loading"]  { border-bottom-color: rgba(255,255,255,0.35); }
+    #shutterBtn[data-state="person"]   { border-bottom-color: #32d74b; }
+    #shutterBtn[data-state="noperson"] { border-bottom-color: #ff453a; }
+    #shutterBtn[data-state="failed"]   { border-bottom-color: #ff9f0a; }
+    #shutterBtn[data-state="bypass"]   { border-bottom-color: #ff9f0a; }
 
     /* 카메라 상단 바 (← 홈 버튼) */
     #cameraTopBar {
@@ -173,18 +180,27 @@
     }
     #homeBtn svg { width: 20px; height: 20px; }
 
-    /* 셔터 위 안내 텍스트 */
+    /* 셔터 위 안내 텍스트 (감지 상태 + 가이드) */
     #captureHint {
       position: fixed;
       left: 0; right: 0;
       bottom: calc(env(safe-area-inset-bottom, 0px) + 110px);
       text-align: center;
-      font-size: 11px;
-      opacity: 0.55;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.8);
       pointer-events: none;
       letter-spacing: 0.3px;
+      display: inline-flex;
+      justify-content: center;
+      transition: color 220ms ease;
     }
     #captureHint.hidden { display: none; }
+    #captureHint[data-state="loading"]  { color: rgba(255,255,255,0.55); }
+    #captureHint[data-state="person"]   { color: #32d74b; }
+    #captureHint[data-state="noperson"] { color: #ff6961; }
+    #captureHint[data-state="failed"]   { color: #ff9f0a; }
+    #captureHint[data-state="bypass"]   { color: #ff9f0a; }
 
     /* ============ 홈 화면 (모드 선택) ============ */
     #home {

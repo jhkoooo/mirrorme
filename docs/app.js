@@ -163,12 +163,14 @@ async function startCamera(facing) {
   }
 
   resetZoom();
-  updateCaptureHint();
-}
-
-function updateCaptureHint() {
-  // 후면 카메라일 때만 안내 문구 표시 (사람 감지 적용 대상)
-  captureHint.classList.toggle('hidden', currentFacing !== 'environment');
+  updateShutterIndicator();
+  // OOTD 진입 시 실시간 감지 시작, MyFace면 중지
+  if (currentFacing === 'environment') {
+    startRealtimeDetection();
+  } else {
+    stopRealtimeDetection();
+    updateShutterIndicator();
+  }
 }
 
 // ============================================================
@@ -191,7 +193,8 @@ function showHome() {
   controls.classList.add('hidden');
   captureHint.classList.add('hidden');
   cameraTopBar.classList.add('hidden');
-  // 스트림 정지
+  // 감지 루프 중지 + 스트림 정지
+  stopRealtimeDetection();
   stopCamera();
   // 홈 화면 표시
   home.classList.remove('hidden');
@@ -267,6 +270,12 @@ let cocoModel = null;
 let modelLoading = false;
 let modelLoadFailed = false;
 
+// 실시간 사람 감지 (OOTD 카메라 화면)
+let detectionInterval = null;
+let lastDetectionResult = null;        // true/false/null
+let bypassDetectionForSession = false; // 모델 실패 시 사용자 승인하에 검증 건너뜀
+const DETECTION_PERIOD_MS = 2000;
+
 async function loadCocoModel() {
   if (cocoModel || modelLoading || modelLoadFailed) return;
   if (typeof cocoSsd === 'undefined') {
@@ -277,25 +286,103 @@ async function loadCocoModel() {
   modelLoading = true;
   try {
     cocoModel = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
-    console.log('[MirrorMe] 사람 감지 모델 로드 완료');
+    console.log('[MyStyle] 사람 감지 모델 로드 완료');
+    updateShutterIndicator();
+    // 로드되자마자 첫 감지 수행 (UI 즉시 업데이트)
+    if (currentFacing === 'environment' && video.srcObject) {
+      runDetection();
+    }
   } catch (e) {
-    console.error('[MirrorMe] COCO-SSD 로드 실패:', e);
+    console.error('[MyStyle] COCO-SSD 로드 실패:', e);
     modelLoadFailed = true;
+    updateShutterIndicator();
   } finally {
     modelLoading = false;
   }
 }
 
-async function detectPerson(canvas) {
-  // 모델 미준비 상태면 양심 모드로 폴백 (저장 허용)
-  if (!cocoModel) return true;
+async function detectPersonOnCanvas(canvas) {
+  if (!cocoModel) return null;
   try {
     const predictions = await cocoModel.detect(canvas);
     return predictions.some(p => p.class === 'person' && p.score > 0.5);
   } catch (e) {
-    console.error('[MirrorMe] 사람 감지 실패, 폴백:', e);
-    return true;
+    console.error('[MyStyle] 사람 감지 실패:', e);
+    return null;
   }
+}
+
+// 주기 감지: video의 현재 프레임을 작은 canvas로 추론 (성능 최적화)
+async function runDetection() {
+  if (!cocoModel) return;
+  if (!video.srcObject) return;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return;
+  // 320px 너비로 축소 추론 (정확도 충분 + 속도 ↑)
+  const scale = 320 / vw;
+  const cv = document.createElement('canvas');
+  cv.width = 320;
+  cv.height = Math.round(vh * scale);
+  cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
+  const res = await detectPersonOnCanvas(cv);
+  if (res !== null) lastDetectionResult = res;
+  updateShutterIndicator();
+}
+
+function startRealtimeDetection() {
+  stopRealtimeDetection();
+  lastDetectionResult = null;
+  updateShutterIndicator();
+  detectionInterval = setInterval(() => {
+    if (currentFacing !== 'environment') return;
+    runDetection();
+  }, DETECTION_PERIOD_MS);
+}
+
+function stopRealtimeDetection() {
+  if (detectionInterval) {
+    clearInterval(detectionInterval);
+    detectionInterval = null;
+  }
+  lastDetectionResult = null;
+}
+
+// 셔터 링·힌트 라벨 상태 업데이트
+function updateShutterIndicator() {
+  // OOTD(후면)가 아니면 상태 표시 X
+  if (currentFacing !== 'environment') {
+    shutterBtn.removeAttribute('data-state');
+    captureHint.removeAttribute('data-state');
+    captureHint.classList.add('hidden');
+    captureHint.textContent = '';
+    return;
+  }
+
+  let state, text;
+  if (bypassDetectionForSession) {
+    state = 'bypass';
+    text = 'AI 감지 비활성 (수동 저장)';
+  } else if (modelLoadFailed) {
+    state = 'failed';
+    text = 'AI 준비 실패';
+  } else if (!cocoModel) {
+    state = 'loading';
+    text = 'AI 준비 중...';
+  } else if (lastDetectionResult === true) {
+    state = 'person';
+    text = '사람 감지됨';
+  } else if (lastDetectionResult === false) {
+    state = 'noperson';
+    text = '사람이 감지되지 않아요';
+  } else {
+    state = 'loading';
+    text = 'AI 준비 중...';
+  }
+
+  shutterBtn.setAttribute('data-state', state);
+  captureHint.setAttribute('data-state', state);
+  captureHint.textContent = text;
+  captureHint.classList.remove('hidden');
 }
 
 // ============================================================
@@ -406,12 +493,33 @@ async function capturePhoto() {
 
     const capturedFacing = currentFacing;
 
-    // 후면 카메라(OOTD)는 사람 감지 검증
-    if (capturedFacing === 'environment') {
-      const hasPerson = await detectPerson(canvas);
-      if (!hasPerson) {
-        toast('사람이 감지되지 않아 저장하지 않았어요');
+    // 후면 카메라(OOTD)는 사람 감지 검증 (엄격 모드)
+    if (capturedFacing === 'environment' && !bypassDetectionForSession) {
+      // 1) 모델 로드 실패 → 1회 모달로 세션 허용 여부 확인
+      if (modelLoadFailed) {
+        const ok = confirm(
+          'AI 감지를 사용할 수 없습니다.\n' +
+          '검증 없이 저장하시겠어요?\n' +
+          '(앱을 다시 켤 때까지 계속 허용됩니다)'
+        );
+        if (!ok) return;
+        bypassDetectionForSession = true;
+        updateShutterIndicator();
+        // 승인 후 계속 진행
+      }
+      // 2) 모델 로딩 중 → 저장 거부
+      else if (!cocoModel) {
+        toast('AI 준비 중이에요. 잠시 후 다시 시도해 주세요');
         return;
+      }
+      // 3) 모델 준비됨 → 실제 감지
+      else {
+        const hasPerson = await detectPersonOnCanvas(canvas);
+        if (hasPerson === false) {
+          toast('사람이 감지되지 않아 저장하지 않았어요');
+          return;
+        }
+        // hasPerson === null (추론 실패)일 땐 저장 허용 (드문 케이스)
       }
     }
 
@@ -597,10 +705,11 @@ galleryBtn.addEventListener('click', () => {
 galleryClose.addEventListener('click', closeGallery);
 
 async function openGallery() {
-  // 갤러리가 떠 있는 동안 카메라 컨트롤·안내 문구는 가려둠
+  // 갤러리가 떠 있는 동안 카메라 컨트롤·안내 문구는 가려둠 + 감지 루프 중지
   controls.classList.add('hidden');
   captureHint.classList.add('hidden');
   cameraTopBar.classList.add('hidden');
+  stopRealtimeDetection();
   gallery.classList.remove('hidden');
   await renderGallery();
 }
@@ -620,7 +729,9 @@ function closeGallery() {
   // 카메라에서 진입한 경우: 카메라 UI 복원
   controls.classList.remove('hidden');
   cameraTopBar.classList.remove('hidden');
-  updateCaptureHint();
+  updateShutterIndicator();
+  // 후면이면 감지 루프 재개
+  if (currentFacing === 'environment') startRealtimeDetection();
   // iOS Safari가 가려진 동안 video를 자동 일시정지했을 수 있음 → 재개
   if (video.srcObject && video.paused) {
     video.play().catch(() => {});
