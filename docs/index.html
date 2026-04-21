@@ -406,21 +406,27 @@
       display: flex; flex-direction: column;
       touch-action: pan-y;
     }
+    /* 3등분 grid로 좌·중·우 영역을 동일 너비로 → 중앙 "앨범" 타이틀이
+       양 끝 요소 길이와 무관하게 정확히 화면 중앙에 정렬됨. */
     #galleryHeader {
-      display: flex; align-items: center; justify-content: space-between;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
       padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 8px;
       flex-shrink: 0;
     }
     #galleryHeader button {
       background: none; border: 0; color: #fff;
       font-size: 16px; font-weight: 600; padding: 6px 8px;
+      justify-self: start;
     }
     #galleryHeader .title {
       font-size: 17px; font-weight: 700;
+      justify-self: center;
     }
     #galleryHeader #photoCount {
       font-size: 13px; opacity: 0.55;
-      min-width: 42px; text-align: right;
+      justify-self: end;
     }
 
     /* 탭 (OOTD / MyFace) */
