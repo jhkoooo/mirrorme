@@ -66,6 +66,15 @@ const geminiKeyInput     = document.getElementById('geminiKeyInput');
 const geminiKeySave      = document.getElementById('geminiKeySave');
 const geminiKeyClear     = document.getElementById('geminiKeyClear');
 const keyStatus          = document.getElementById('keyStatus');
+const toneChipsEl        = document.getElementById('toneChips');
+
+// 맥락 입력 시트
+const contextSheet       = document.getElementById('contextSheet');
+const contextSheetCancel = document.getElementById('contextSheetCancel');
+const contextChipsEl     = document.getElementById('contextChips');
+const contextFreeInput   = document.getElementById('contextFreeInput');
+const contextSkip        = document.getElementById('contextSkip');
+const contextSubmit      = document.getElementById('contextSubmit');
 
 // ============================================================
 //  상태
@@ -98,10 +107,15 @@ let zoomFadeTimer = null;
 let toastTimer = null;
 
 // 스타일 검사 관련
-const GEMINI_KEY_STORAGE = 'mystyle_gemini_api_key';
+const GEMINI_KEY_STORAGE  = 'mystyle_gemini_api_key';
+const TONE_STORAGE        = 'mystyle_ai_tone';                 // 'friendly' | 'balanced' | 'expert'
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
 let styleCheckInFlight = false;
+
+// 맥락 입력 상태 (시트에서 임시 보관, 제출 시 분석 호출에 전달)
+let selectedContextChip = '';   // '데일리' 등 (칩으로 선택)
+let contextFreeText     = '';   // 자유 입력
 
 // 카테고리 정의
 const CATEGORY_KEYS = ['top', 'bottom', 'shoes', 'outer', 'accessory'];
@@ -1466,6 +1480,7 @@ function refreshKeyStatus() {
 
 function openSettings() {
   refreshKeyStatus();
+  refreshToneChips();
   settings.classList.remove('hidden');
 }
 function closeSettings() {
@@ -1502,23 +1517,46 @@ geminiKeyClear.addEventListener('click', () => {
 // ============================================================
 //  스타일 검사 (Gemini Vision)
 // ============================================================
-const STYLE_CHECK_PROMPT =
-  '이 사진에 찍힌 사람의 패션 스타일을 객관적이고 분석적인 톤으로 평가해줘. 한국어로, 친절하지만 직설적으로. 다음 JSON 형식을 반드시 지켜 응답해:\n' +
-  '{\n' +
-  '  "score": 1~10 사이의 정수,\n' +
-  '  "colorBalance": "상" 또는 "중" 또는 "하",\n' +
-  '  "silhouetteBalance": "상" 또는 "중" 또는 "하",\n' +
-  '  "comment": "종합 평가 한 줄 (40자 이내, 구체적으로)",\n' +
-  '  "suggestion": "구체적 개선 제안 1가지 (40자 이내)",\n' +
-  '  "tags": {\n' +
-  '    "top": "상의 짧은 설명 (예: 흰색 옥스퍼드 셔츠). 없으면 빈 문자열",\n' +
-  '    "bottom": "하의 짧은 설명. 없으면 빈 문자열",\n' +
-  '    "shoes": "신발 짧은 설명. 없으면 빈 문자열",\n' +
-  '    "outer": "아우터 짧은 설명. 없으면 빈 문자열",\n' +
-  '    "accessory": "액세서리 짧은 설명. 없으면 빈 문자열"\n' +
-  '  }\n' +
-  '}\n' +
-  '다른 텍스트(설명·마크다운·코드펜스) 없이 JSON만 반환해.';
+const TONE_DIRECTIVES = {
+  friendly: '쉬운 말과 격려 위주의 친절한 톤으로 평가해. 패션 용어는 최소한으로 쓰고, 칭찬으로 시작해.',
+  balanced: '객관적이고 분석적인 톤으로, 친절하되 직설적으로 평가해.',
+  expert:   '패션 전문가·스타일리스트 톤으로 평가해. 전문 용어(실루엣/톤 온 톤/레이어링/드레이프 등) 적극 사용. 유행 흐름도 언급.',
+};
+
+function getTone() {
+  const v = (function(){ try { return localStorage.getItem(TONE_STORAGE); } catch(e) { return null; } })();
+  return (v === 'friendly' || v === 'expert') ? v : 'balanced';
+}
+function setTone(v) {
+  try { localStorage.setItem(TONE_STORAGE, v); } catch(e) {}
+}
+
+function buildStyleCheckPrompt(tone, context) {
+  const toneLine = TONE_DIRECTIVES[tone] || TONE_DIRECTIVES.balanced;
+  const ctxLine = context && context.trim()
+    ? '이 사진의 착장 상황·맥락: "' + context.trim() + '". 이 맥락에 맞춰 평가해.'
+    : '상황 맥락은 주어지지 않음. 일반적 데일리 기준으로 평가.';
+
+  return [
+    '당신은 한국어로 답하는 패션 코디 어시스턴트입니다.',
+    toneLine,
+    ctxLine,
+    '사진 속 사람의 스타일을 분석해 아래 JSON 스키마로만 응답하세요. 다른 텍스트·마크다운·코드펜스 금지.',
+    '',
+    '[필드 가이드]',
+    '- score: 1~10. 10=훌륭, 7~8=좋음, 5~6=무난, 3~4=아쉬움, 1~2=재구성 필요.',
+    '- colorBalance / silhouetteBalance: "상"=조화롭고 포인트 명확, "중"=무난, "하"=부조화·어색.',
+    '- comment: 40자 이내 종합 한 줄 평. 구체적·관찰 기반.',
+    '- suggestion: 40자 이내 개선 제안 1가지. "모든 게 완벽"이면 빈 문자열.',
+    '- tags: 각 카테고리별 짧은 한국어 묘사. 해당 없음이면 빈 문자열.',
+    '- brandGuess: 아이템별 추정 브랜드. 로고가 명확히 보이면 confidence="high", 디자인·디테일·소재로 추정하면 "medium", 전혀 모르겠으면 브랜드는 null로. 억지 추정 금지.',
+    '- brandGuess[].tier: "하이엔드" / "컨템포러리" / "도메스틱" / "SPA" / "스트리트" / "기타" 중 하나. 모르면 "기타".',
+    '- brandGuess[].item: "상의" / "하의" / "신발" / "아우터" / "액세서리" 중 하나.',
+    '- contextFit: 맥락이 주어졌을 때 그 상황에 얼마나 어울리는지 한 줄 (30자 이내). 맥락 없으면 빈 문자열.',
+    '',
+    '브랜드 언급 시 완곡하게("~로 보입니다", "~스러운"). 확신 없으면 null을 쓰세요.',
+  ].join('\n');
+}
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -1533,9 +1571,9 @@ function blobToBase64(blob) {
   });
 }
 
-async function callGeminiVision(apiKey, blob) {
+async function callGeminiVision(apiKey, blob, context, tone) {
   const b64 = await blobToBase64(blob);
-  // responseSchema로 응답 JSON 구조를 강제해 "Unterminated string" 같은 파싱 오류 방지.
+  // responseSchema로 응답 JSON 구조를 강제
   const responseSchema = {
     type: 'object',
     properties: {
@@ -1544,6 +1582,7 @@ async function callGeminiVision(apiKey, blob) {
       silhouetteBalance: { type: 'string', enum: ['상', '중', '하'] },
       comment: { type: 'string' },
       suggestion: { type: 'string' },
+      contextFit: { type: 'string' },
       tags: {
         type: 'object',
         properties: {
@@ -1555,21 +1594,35 @@ async function callGeminiVision(apiKey, blob) {
         },
         required: ['top', 'bottom', 'shoes', 'outer', 'accessory'],
       },
+      brandGuess: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            item:       { type: 'string', enum: ['상의', '하의', '신발', '아우터', '액세서리'] },
+            brand:      { type: 'string' },
+            tier:       { type: 'string', enum: ['하이엔드', '컨템포러리', '도메스틱', 'SPA', '스트리트', '기타'] },
+            confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+          },
+          required: ['item', 'tier', 'confidence'],
+        },
+      },
     },
-    required: ['score', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'tags'],
+    required: ['score', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'tags', 'brandGuess'],
   };
+  const prompt = buildStyleCheckPrompt(tone || 'balanced', context || '');
   const body = {
     contents: [{
       parts: [
-        { text: STYLE_CHECK_PROMPT },
+        { text: prompt },
         { inline_data: { mime_type: blob.type || 'image/jpeg', data: b64 } },
       ],
     }],
     generationConfig: {
       response_mime_type: 'application/json',
       response_schema: responseSchema,
-      temperature: 0.4,
-      maxOutputTokens: 1024,
+      temperature: 0.5,
+      maxOutputTokens: 1400,
     },
   };
   const res = await fetch(GEMINI_ENDPOINT + '?key=' + encodeURIComponent(apiKey), {
@@ -1597,7 +1650,6 @@ async function callGeminiVision(apiKey, blob) {
 }
 
 function parseStyleCheckJson(text) {
-  // 코드펜스나 여분 텍스트 대비
   let s = text.trim();
   const start = s.indexOf('{');
   const end = s.lastIndexOf('}');
@@ -1606,20 +1658,30 @@ function parseStyleCheckJson(text) {
   try {
     obj = JSON.parse(s);
   } catch (e) {
-    // 응답 일부를 콘솔에 기록해 원인 진단 가능하게
     console.error('[MyStyle] JSON 파싱 실패. 원문:', text.slice(0, 500));
     throw new Error('응답 파싱 실패 — ' + (e.message || ''));
   }
-  // 필드 검증 + 정규화
   const score = Math.max(1, Math.min(10, parseInt(obj.score, 10) || 0));
-  const pick = (v, def) => (v === '상' || v === '중' || v === '하') ? v : def;
+  const pickBal = (v) => (v === '상' || v === '중' || v === '하') ? v : '중';
+  const VALID_TIER = ['하이엔드','컨템포러리','도메스틱','SPA','스트리트','기타'];
+  const VALID_ITEM = ['상의','하의','신발','아우터','액세서리'];
+  const VALID_CONF = ['high','medium','low'];
   const tags = (obj.tags && typeof obj.tags === 'object') ? obj.tags : {};
+  const rawBrands = Array.isArray(obj.brandGuess) ? obj.brandGuess : [];
+  const brandGuess = rawBrands.map(b => ({
+    item:       VALID_ITEM.includes(b.item) ? b.item : '기타',
+    brand:      (typeof b.brand === 'string' && b.brand.trim()) ? b.brand.trim().slice(0, 40) : null,
+    tier:       VALID_TIER.includes(b.tier) ? b.tier : '기타',
+    confidence: VALID_CONF.includes(b.confidence) ? b.confidence : 'low',
+  })).filter(b => VALID_ITEM.includes(b.item));
+
   return {
     score,
-    colorBalance: pick(obj.colorBalance, '중'),
-    silhouetteBalance: pick(obj.silhouetteBalance, '중'),
-    comment: String(obj.comment || '').slice(0, 80),
-    suggestion: String(obj.suggestion || '').slice(0, 80),
+    colorBalance:      pickBal(obj.colorBalance),
+    silhouetteBalance: pickBal(obj.silhouetteBalance),
+    comment:           String(obj.comment || '').slice(0, 120),
+    suggestion:        String(obj.suggestion || '').slice(0, 120),
+    contextFit:        String(obj.contextFit || '').slice(0, 80),
     tags: {
       top:       String(tags.top || ''),
       bottom:    String(tags.bottom || ''),
@@ -1627,11 +1689,13 @@ function parseStyleCheckJson(text) {
       outer:     String(tags.outer || ''),
       accessory: String(tags.accessory || ''),
     },
+    brandGuess,
     analyzedAt: Date.now(),
   };
 }
 
-async function runStyleCheck() {
+// ✨ 버튼 → 맥락 입력 시트 먼저 오픈 (context는 시트에서 받음)
+function beginStyleCheck() {
   if (styleCheckInFlight) return;
   if (!currentViewingPhoto) return;
   if (currentViewingPhoto.facing !== 'environment') {
@@ -1641,18 +1705,27 @@ async function runStyleCheck() {
   const key = getGeminiKey();
   if (!key) {
     toast('먼저 설정에서 API 키를 등록해주세요');
-    // 잠시 후 설정 열어주기
     setTimeout(() => openSettings(), 600);
     return;
   }
+  openContextSheet();
+}
+
+// 시트에서 "분석 시작" 누르면 실제 API 호출
+async function runStyleCheck(contextStr) {
+  if (styleCheckInFlight) return;
+  if (!currentViewingPhoto) return;
+  const key = getGeminiKey();
+  if (!key) return;
 
   styleCheckInFlight = true;
   renderStyleCheckCard({ loading: true });
 
   try {
-    const result = await callGeminiVision(key, currentViewingPhoto.blob);
+    const tone = getTone();
+    const result = await callGeminiVision(key, currentViewingPhoto.blob, contextStr, tone);
 
-    // AI가 채운 태그를 사용자 tags에 반영 (비어 있는 필드에만, 기존 값 유지 우선)
+    // AI 태그: 비어 있는 필드에만 반영 (사용자 수동 입력 우선)
     const existing = currentViewingPhoto.tags || {};
     const merged = {};
     for (const k of CATEGORY_KEYS) {
@@ -1666,6 +1739,10 @@ async function runStyleCheck() {
       silhouetteBalance: result.silhouetteBalance,
       comment: result.comment,
       suggestion: result.suggestion,
+      contextFit: result.contextFit,
+      context: contextStr || '',
+      tone,
+      brandGuess: result.brandGuess,
       analyzedAt: result.analyzedAt,
     };
 
@@ -1712,6 +1789,36 @@ function renderStyleCheckCard(opts) {
   }
 
   const dateStr = sc.analyzedAt ? formatDate(sc.analyzedAt) : '';
+  const brands = Array.isArray(sc.brandGuess) ? sc.brandGuess : [];
+
+  let brandSectionHtml = '';
+  if (brands.length > 0) {
+    const tierCount = {};
+    const brandItems = brands.map(b => {
+      const confClass = 'c-' + (b.confidence || 'low');
+      const confLabel =
+        b.confidence === 'high'   ? '확실' :
+        b.confidence === 'medium' ? '추정' : '모름';
+      tierCount[b.tier] = (tierCount[b.tier] || 0) + 1;
+      const valueText = b.brand ? b.brand : '—';
+      return (
+        '<div class="styleCheckBrandItem">' +
+          '<span class="bLabel">' + b.item + '</span>' +
+          '<span class="bValue"></span>' +
+          '<span class="bTier">' + b.tier + '</span>' +
+          '<span class="bConfidence ' + confClass + '">' + confLabel + '</span>' +
+        '</div>'
+      );
+    }).join('');
+    const balanceText = Object.keys(tierCount).map(k => k + ' ' + tierCount[k]).join(' + ');
+    brandSectionHtml =
+      '<div class="styleCheckBrands">' +
+        '<div class="styleCheckBrandsTitle">추정 브랜드</div>' +
+        brandItems +
+        (balanceText ? '<div class="styleCheckBalance2">밸런스: ' + balanceText + '</div>' : '') +
+      '</div>';
+  }
+
   styleCheckCard.innerHTML =
     '<div class="styleCheckHeader">' +
       '<div class="styleCheckScore">' + sc.score + '<span class="max">/10</span></div>' +
@@ -1720,23 +1827,97 @@ function renderStyleCheckCard(opts) {
         '<span>실루엣 <b>' + sc.silhouetteBalance + '</b></span>' +
       '</div>' +
     '</div>' +
+    (sc.context ? '<div class="styleCheckContext"></div>' : '') +
     '<div class="styleCheckBody">' +
       '<div class="styleCheckComment"></div>' +
       (sc.suggestion ? '<div class="styleCheckSuggestion"></div>' : '') +
+      (sc.contextFit ? '<div class="styleCheckSuggestion" data-role="fit"></div>' : '') +
     '</div>' +
+    brandSectionHtml +
     '<div class="styleCheckFooter">' +
       '<span>' + dateStr + '</span>' +
       '<button class="styleCheckRerun">다시 검사</button>' +
     '</div>';
 
+  // 텍스트는 innerHTML 대신 textContent로 주입 (XSS 안전)
+  if (sc.context) {
+    styleCheckCard.querySelector('.styleCheckContext').textContent = '맥락: ' + sc.context;
+  }
   styleCheckCard.querySelector('.styleCheckComment').textContent = sc.comment;
   if (sc.suggestion) {
     styleCheckCard.querySelector('.styleCheckSuggestion').textContent = sc.suggestion;
   }
-  styleCheckCard.querySelector('.styleCheckRerun').addEventListener('click', runStyleCheck);
+  if (sc.contextFit) {
+    const fitEl = styleCheckCard.querySelector('[data-role="fit"]');
+    if (fitEl) fitEl.textContent = sc.contextFit;
+  }
+  // brandGuess 값 주입
+  if (brands.length > 0) {
+    const valueNodes = styleCheckCard.querySelectorAll('.styleCheckBrandItem .bValue');
+    brands.forEach((b, i) => {
+      if (valueNodes[i]) valueNodes[i].textContent = b.brand ? b.brand : '—';
+    });
+  }
+  styleCheckCard.querySelector('.styleCheckRerun').addEventListener('click', beginStyleCheck);
 }
 
-photoStyleCheckBtn.addEventListener('click', runStyleCheck);
+photoStyleCheckBtn.addEventListener('click', beginStyleCheck);
+
+// ─── 맥락 입력 시트 ────────────────────────────
+function openContextSheet() {
+  // 이전 사진의 맥락 복구: 재검사일 때 편의
+  const prev = currentViewingPhoto && currentViewingPhoto.styleCheck && currentViewingPhoto.styleCheck.context;
+  selectedContextChip = '';
+  contextFreeText = '';
+  // 칩 active 초기화
+  contextChipsEl.querySelectorAll('.contextChip').forEach(b => b.classList.remove('active'));
+  contextFreeInput.value = prev || '';
+  contextSheet.classList.remove('hidden');
+}
+function closeContextSheet() {
+  contextSheet.classList.add('hidden');
+}
+contextSheetCancel.addEventListener('click', closeContextSheet);
+contextSheet.addEventListener('click', (e) => {
+  if (e.target === contextSheet) closeContextSheet();
+});
+contextChipsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.contextChip');
+  if (!btn) return;
+  const val = btn.dataset.context;
+  if (selectedContextChip === val) {
+    selectedContextChip = '';
+    btn.classList.remove('active');
+  } else {
+    selectedContextChip = val;
+    contextChipsEl.querySelectorAll('.contextChip').forEach(b => b.classList.toggle('active', b === btn));
+  }
+});
+contextSkip.addEventListener('click', () => {
+  closeContextSheet();
+  runStyleCheck('');
+});
+contextSubmit.addEventListener('click', () => {
+  const free = contextFreeInput.value.trim();
+  let ctx = selectedContextChip;
+  if (free) ctx = ctx ? (ctx + ' — ' + free) : free;
+  closeContextSheet();
+  runStyleCheck(ctx);
+});
+
+// ─── 톤 선택 (설정) ────────────────────────────
+function refreshToneChips() {
+  const cur = getTone();
+  toneChipsEl.querySelectorAll('.toneChip').forEach(b => {
+    b.classList.toggle('active', b.dataset.tone === cur);
+  });
+}
+toneChipsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.toneChip');
+  if (!btn) return;
+  setTone(btn.dataset.tone);
+  refreshToneChips();
+});
 
 // ============================================================
 //  라이프사이클

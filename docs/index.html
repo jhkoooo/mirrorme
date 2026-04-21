@@ -318,6 +318,28 @@
       opacity: 0.85;
     }
     #settings .keyStatus.ok { color: #32d74b; }
+
+    /* 톤 선택 칩 */
+    .toneChips {
+      display: flex;
+      gap: 6px;
+    }
+    .toneChip {
+      flex: 1;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 10px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 10px 0;
+    }
+    .toneChip.active {
+      background: #fff;
+      color: #000;
+      border-color: #fff;
+    }
+    .toneChip:active { opacity: 0.8; }
     #home.fading {
       opacity: 0;
       pointer-events: none;
@@ -614,6 +636,75 @@
       pointer-events: none;
     }
 
+    /* 맥락 입력 시트 (✨ 탭 시 열림) */
+    #contextSheet {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 350;
+      display: flex; align-items: flex-end; justify-content: center;
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+    #contextSheet .sheet {
+      width: 100%;
+      max-width: 480px;
+      background: #1c1c1e;
+      border-radius: 18px 18px 0 0;
+      padding: 18px 20px calc(env(safe-area-inset-bottom, 0px) + 18px);
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    #contextSheet .sheetHeader {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    #contextSheet .sheetTitle {
+      font-size: 17px; font-weight: 700; color: #fff;
+    }
+    #contextSheet .sheetSub {
+      font-size: 12px;
+      opacity: 0.6;
+      margin-top: -6px;
+      margin-bottom: 4px;
+    }
+    .contextChips {
+      display: flex; flex-wrap: wrap; gap: 6px;
+    }
+    .contextChip {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 999px;
+      color: #fff;
+      font-size: 13px;
+      padding: 8px 14px;
+    }
+    .contextChip.active {
+      background: #fff;
+      color: #000;
+      border-color: #fff;
+    }
+    .contextChip:active { opacity: 0.8; }
+    #contextFreeInput {
+      width: 100%; box-sizing: border-box;
+      background: rgba(255,255,255,0.10);
+      border: 0;
+      border-radius: 10px;
+      padding: 11px 14px;
+      color: #fff; font-size: 14px;
+      outline: none;
+    }
+    #contextFreeInput::placeholder { color: rgba(255,255,255,0.4); }
+    #contextSheet .settingActions {
+      display: flex; gap: 8px; margin-top: 4px;
+    }
+    #contextSheet .settingActions button {
+      flex: 1;
+      padding: 11px 0;
+      border: 0;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    #contextSheet .btnPrimary { background: #fff; color: #000; }
+    #contextSheet .btnGhost   { background: rgba(255,255,255,0.10); color: #fff; }
+
     /* 스타일 검사 결과 카드 (OOTD info 패널 안) */
     #styleCheckCard {
       background: rgba(255,255,255,0.08);
@@ -660,6 +751,53 @@
     }
     .styleCheckSuggestion::before {
       content: "💡 ";
+    }
+    .styleCheckContext {
+      font-size: 12px;
+      opacity: 0.7;
+      padding: 4px 10px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      align-self: flex-start;
+    }
+    .styleCheckBrands {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 8px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .styleCheckBrandsTitle {
+      font-size: 11px;
+      opacity: 0.55;
+      letter-spacing: 0.3px;
+      margin-bottom: 2px;
+    }
+    .styleCheckBrandItem {
+      font-size: 12.5px;
+      display: flex; gap: 6px;
+      align-items: baseline;
+    }
+    .styleCheckBrandItem .bLabel {
+      opacity: 0.55;
+      min-width: 40px;
+    }
+    .styleCheckBrandItem .bValue { flex: 1; }
+    .styleCheckBrandItem .bTier {
+      font-size: 10.5px;
+      opacity: 0.55;
+    }
+    .styleCheckBrandItem .bConfidence {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.08);
+    }
+    .styleCheckBrandItem .bConfidence.c-high   { color: #32d74b; }
+    .styleCheckBrandItem .bConfidence.c-medium { color: #5ac8fa; }
+    .styleCheckBrandItem .bConfidence.c-low    { color: #ff9f0a; }
+    .styleCheckBalance2 {
+      font-size: 11px;
+      opacity: 0.55;
+      margin-top: 2px;
     }
     .styleCheckFooter {
       display: flex; justify-content: space-between; align-items: center;
@@ -941,6 +1079,20 @@
           <button class="btnPrimary" id="geminiKeySave">저장</button>
         </div>
       </div>
+
+      <div class="settingGroup">
+        <label>AI 피드백 톤</label>
+        <div class="toneChips" id="toneChips">
+          <button class="toneChip" data-tone="friendly">친절</button>
+          <button class="toneChip active" data-tone="balanced">균형</button>
+          <button class="toneChip" data-tone="expert">전문가</button>
+        </div>
+        <div class="settingHint">
+          친절 — 쉬운 말로 격려 위주 /
+          균형 — 적절한 분석과 제안 /
+          전문가 — 패션 용어와 상세 분석 (매니아용)
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1023,6 +1175,32 @@
       <input id="photoMemoInput" type="text" placeholder="오늘의 코디 메모" maxlength="80" />
       <div id="photoTagsArea"></div>
       <button id="addCategoryBtn">+ 카테고리 추가</button>
+    </div>
+  </div>
+
+  <!-- 스타일 검사 전 맥락 입력 시트 (Phase 1) -->
+  <div id="contextSheet" class="hidden">
+    <div class="sheet">
+      <div class="sheetHeader">
+        <span class="sheetTitle">어떤 상황인가요?</span>
+        <button class="sheetClose" id="contextSheetCancel">취소</button>
+      </div>
+      <div class="sheetSub">상황을 알려주면 AI가 맥락에 맞춰 평가해요 (생략 가능)</div>
+
+      <div class="contextChips" id="contextChips">
+        <button class="contextChip" data-context="데일리">데일리</button>
+        <button class="contextChip" data-context="데이트">데이트</button>
+        <button class="contextChip" data-context="미팅">미팅</button>
+        <button class="contextChip" data-context="여행">여행</button>
+        <button class="contextChip" data-context="파티">파티</button>
+      </div>
+
+      <input id="contextFreeInput" type="text" maxlength="60" placeholder="직접 입력 (예: 저녁 레스토랑, 겨울 출근)" />
+
+      <div class="settingActions">
+        <button class="btnGhost" id="contextSkip">건너뛰기</button>
+        <button class="btnPrimary" id="contextSubmit">분석 시작</button>
+      </div>
     </div>
   </div>
 
