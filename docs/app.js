@@ -301,11 +301,21 @@ async function loadCocoModel() {
   }
 }
 
+// 반환값: 'none' | 'partial' | 'full' | null
+// 'partial' = 사람은 있지만 bbox가 이미지 높이의 FULL_HEIGHT_RATIO 미만 (전신이 덜 찍힘)
+// 'full'    = 사람 bbox가 충분한 크기 (상·하체 대부분 보임)
+const FULL_HEIGHT_RATIO = 0.65;
 async function detectPersonOnCanvas(canvas) {
   if (!cocoModel) return null;
   try {
     const predictions = await cocoModel.detect(canvas);
-    return predictions.some(p => p.class === 'person' && p.score > 0.5);
+    const persons = predictions.filter(p => p.class === 'person' && p.score > 0.5);
+    if (persons.length === 0) return 'none';
+    const imgH = canvas.height || 1;
+    // 가장 큰 사람 bbox 기준
+    const biggest = persons.reduce((a, b) => (b.bbox[3] > a.bbox[3] ? b : a));
+    const heightRatio = biggest.bbox[3] / imgH;
+    return heightRatio >= FULL_HEIGHT_RATIO ? 'full' : 'partial';
   } catch (e) {
     console.error('[MyStyle] 사람 감지 실패:', e);
     return null;
@@ -325,7 +335,7 @@ async function runDetection() {
   cv.height = Math.round(vh * scale);
   cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
   const res = await detectPersonOnCanvas(cv);
-  if (res !== null) lastDetectionResult = res;
+  if (res !== null) lastDetectionResult = res;  // 'none'|'partial'|'full'
   updateShutterIndicator();
 }
 
@@ -368,10 +378,13 @@ function updateShutterIndicator() {
   } else if (!cocoModel) {
     state = 'loading';
     text = 'AI 준비 중...';
-  } else if (lastDetectionResult === true) {
+  } else if (lastDetectionResult === 'full') {
     state = 'person';
     text = '사람 감지됨';
-  } else if (lastDetectionResult === false) {
+  } else if (lastDetectionResult === 'partial') {
+    state = 'partial';
+    text = '전신이 보이도록 맞춰주세요';
+  } else if (lastDetectionResult === 'none') {
     state = 'noperson';
     text = '사람이 감지되지 않아요';
   } else {
@@ -512,14 +525,18 @@ async function capturePhoto() {
         toast('AI 준비 중이에요. 잠시 후 다시 시도해 주세요');
         return;
       }
-      // 3) 모델 준비됨 → 실제 감지
+      // 3) 모델 준비됨 → 실제 감지 (full만 통과)
       else {
-        const hasPerson = await detectPersonOnCanvas(canvas);
-        if (hasPerson === false) {
+        const status = await detectPersonOnCanvas(canvas);
+        if (status === 'none') {
           toast('사람이 감지되지 않아 저장하지 않았어요');
           return;
         }
-        // hasPerson === null (추론 실패)일 땐 저장 허용 (드문 케이스)
+        if (status === 'partial') {
+          toast('전신이 더 나오도록 맞춰주세요');
+          return;
+        }
+        // 'full' → 통과. 'null'(추론 실패)도 드물게 허용.
       }
     }
 
