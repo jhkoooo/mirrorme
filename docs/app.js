@@ -328,25 +328,43 @@ async function loadPoseModel() {
 }
 
 // 17개 키포인트로 전신 여부 분류
-// - 'full'    = 어깨(좌/우 중 1개) + 엉덩이(좌/우 중 1개) + 다리(무릎 or 발목 중 1개) 모두 존재
-// - 'partial' = 사람은 있지만 상·중·하 중 하나 이상 미충족 (팔만, 얼굴만, 상반신만 등)
+// - 'full'    = 어깨·엉덩이·다리 모두 감지 + 키포인트 bbox가 이미지의 충분한 영역 차지
+// - 'partial' = 사람은 있지만 상·중·하 중 하나 이상 미충족, 또는 너무 작게 잡힘(피규어·포스터 등)
 // - 'none'    = 어떤 키포인트도 임계치 이상으로 보이지 않음
-function classifyPose(keypoints) {
+const KP_BBOX_MIN_H_RATIO = 0.50;  // 키포인트 bbox 높이 / 이미지 높이 — 피규어 차단용
+const KP_BBOX_MIN_W_RATIO = 0.12;
+function classifyPose(keypoints, canvasW, canvasH) {
   if (!keypoints || keypoints.length === 0) return 'none';
-  const has = (name) => {
-    const kp = keypoints.find(k => k.name === name);
-    return !!(kp && kp.score >= KP_THRESHOLD);
-  };
-  const anyVisible = keypoints.some(k => k.score >= KP_THRESHOLD);
-  if (!anyVisible) return 'none';
+  const visible = keypoints.filter(k => k.score >= KP_THRESHOLD);
+  if (visible.length === 0) return 'none';
 
+  const has = (name) => visible.some(k => k.name === name);
   const hasShoulder  = has('left_shoulder') || has('right_shoulder');
   const hasHip       = has('left_hip')      || has('right_hip');
   const hasLowerBody =
     has('left_knee')  || has('right_knee')  ||
     has('left_ankle') || has('right_ankle');
 
-  return (hasShoulder && hasHip && hasLowerBody) ? 'full' : 'partial';
+  if (!(hasShoulder && hasHip && hasLowerBody)) return 'partial';
+
+  // 추가 검증: 키포인트 전체 bbox가 이미지에 비해 작으면 피규어·포스터 등 오감지
+  if (canvasW && canvasH) {
+    let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+    for (const k of visible) {
+      if (k.y < minY) minY = k.y;
+      if (k.y > maxY) maxY = k.y;
+      if (k.x < minX) minX = k.x;
+      if (k.x > maxX) maxX = k.x;
+    }
+    const bboxH = maxY - minY;
+    const bboxW = maxX - minX;
+    const hRatio = bboxH / canvasH;
+    const wRatio = bboxW / canvasW;
+    if (hRatio < KP_BBOX_MIN_H_RATIO || wRatio < KP_BBOX_MIN_W_RATIO) {
+      return 'partial';
+    }
+  }
+  return 'full';
 }
 
 // 캔버스에서 포즈 추정 → 'none'/'partial'/'full'/null 반환
@@ -355,7 +373,7 @@ async function detectPersonOnCanvas(canvas) {
   try {
     const poses = await poseModel.estimatePoses(canvas, { maxPoses: 1, flipHorizontal: false });
     if (!poses || poses.length === 0) return 'none';
-    return classifyPose(poses[0].keypoints);
+    return classifyPose(poses[0].keypoints, canvas.width, canvas.height);
   } catch (e) {
     console.error('[MyStyle] 포즈 추정 실패:', e);
     return null;
@@ -1866,20 +1884,22 @@ async function runStyleCheck(contextStr) {
     // 429(쿼터) / 503(혼잡) 안내 메시지 분기
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
       // 서버 원문에서 유형 추정
-      const isDaily  = /(day|daily|per day|RequestsPerDay|PerDay)/i.test(msg);
-      const isMinute = /(minute|per minute|RPM|PerMinute)/i.test(msg);
-      // 서버 원문 일부도 토스트에 포함 (사용자가 정확한 원인 파악 가능)
-      const detailMatch = msg.match(/429\s*[:：-]\s*(.+)/);
-      const detail = detailMatch ? detailMatch[1].slice(0, 100) : '';
+      const isDaily    = /(day|daily|per day|RequestsPerDay|PerDay)/i.test(msg);
+      const isMinute   = /(minute|per minute|RPM|PerMinute)/i.test(msg);
+      const isBilling  = /(plan and billing|check your plan|billing details|exceeded your current quota)/i.test(msg);
       let hint;
-      if (isDaily) {
+      if (isBilling) {
+        hint = '무료 한도 소진. 새 API 키 발급(AI Studio 새 프로젝트) 또는 결제 활성화 필요. 내일 리셋될 수도 있음';
+      } else if (isDaily) {
         hint = '일일 한도 초과. 내일 리셋 되거나 새 API 키로 교체 필요';
       } else if (isMinute) {
         hint = '분당 한도 초과. 1분 후 다시 시도';
       } else {
+        const detailMatch = msg.match(/429\s*[:：-]\s*(.+)/);
+        const detail = detailMatch ? detailMatch[1].slice(0, 100) : '';
         hint = '쿼터 초과' + (detail ? ' — ' + detail : '. AI Studio에서 사용량 확인');
       }
-      toast(hint, 7000);
+      toast(hint, 7500);
     } else if (msg.indexOf('503') >= 0 || msg.indexOf('overload') >= 0) {
       toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
     } else if (msg.indexOf('파싱') >= 0) {

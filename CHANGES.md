@@ -83,6 +83,16 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 46. v3.7.8 — 피규어 오감지 차단 + 쿼터 billing 케이스 구체 안내
+**프롬프트**: "쿼터초과 - you exceeded your current quota, please check your plan and billing details. / 첨부한 이미지는 대체 어떻게 찍히는거지? 사람이 아닌데 왜 인식해?"
+**수정 파일**: `docs/app.js`
+**내용**:
+- **키포인트 bbox 크기 검증 추가**: 피규어·포스터·벽에 걸린 옷 등이 MoveNet에 사람으로 감지되는 케이스 차단. 어깨·엉덩이·다리 키포인트가 모두 있어도 그 전체 bbox가 이미지 **세로 50% 미만** 또는 **가로 12% 미만**이면 `'partial'`로 판정(저장 거부). 실제 거울 전신 OOTD는 키포인트가 이미지 상당 영역에 분포하므로 영향 없음.
+- `classifyPose(keypoints, canvasW, canvasH)` 시그니처 변경 — 캔버스 크기를 받아 비율 계산
+- 상수: `KP_BBOX_MIN_H_RATIO = 0.50`, `KP_BBOX_MIN_W_RATIO = 0.12`
+- **429 billing 케이스 구체 안내**: 서버 원문의 `plan and billing`, `check your plan`, `exceeded your current quota` 키워드 감지 → "무료 한도 소진. 새 API 키 발급(AI Studio 새 프로젝트) 또는 결제 활성화 필요. 내일 리셋될 수도 있음" 명확한 안내. 사용자가 즉시 해결 방법 파악 가능.
+- 토스트 지속시간 7000ms → 7500ms.
+
 ### 45. v3.7.7 — 연타 false positive 이중 검증 + 쿼터 원문 노출
 **프롬프트**: "AI분석시 쿼터 초과. 잠시 후 다시 시도해주세요 라고 뜨고 진행이 안됨. / 카메라 모드에서 사진 연타로 누를시에 사람이 감지되지 않아도 종종 찍히는 현상 발생"
 **수정 파일**: `docs/app.js`
