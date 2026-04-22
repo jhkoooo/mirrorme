@@ -546,7 +546,7 @@ async function capturePhoto() {
 
     const capturedFacing = currentFacing;
 
-    // 후면 카메라(OOTD)는 사람 감지 검증 (엄격 모드)
+    // 후면 카메라(OOTD)는 사람 감지 검증 (이중 검증 — 연타 시 false positive 방지)
     if (capturedFacing === 'environment' && !bypassDetectionForSession) {
       // 1) 모델 로드 실패 → 1회 모달로 세션 허용 여부 확인
       if (modelLoadFailed) {
@@ -565,8 +565,20 @@ async function capturePhoto() {
         toast('AI 준비 중이에요. 잠시 후 다시 시도해 주세요');
         return;
       }
-      // 3) 모델 준비됨 → 실제 감지 (full만 통과)
+      // 3) 모델 준비됨 → 이중 검증: 실시간 상태 + 현재 프레임 둘 다 'full'이어야 저장
       else {
+        // 3-1) 실시간 감지 상태(셔터 링 색상과 일치) 우선 체크
+        //      UI가 빨강/하늘색이면 사용자는 이미 "감지 안 됨" 상태를 본 것.
+        //      그 상태에서 연타로 찍으려 해도 거부하는 게 일관된 UX.
+        if (lastDetectionResult === 'none') {
+          toast('사람이 감지되지 않아 저장하지 않았어요');
+          return;
+        }
+        if (lastDetectionResult === 'partial') {
+          toast('전신이 더 나오도록 맞춰주세요');
+          return;
+        }
+        // 3-2) 촬영 프레임 재감지 (lastDetectionResult 'full' 또는 null인 경우)
         const status = await detectPersonOnCanvas(canvas);
         if (status === 'none') {
           toast('사람이 감지되지 않아 저장하지 않았어요');
@@ -576,7 +588,7 @@ async function capturePhoto() {
           toast('전신이 더 나오도록 맞춰주세요');
           return;
         }
-        // 'full' → 통과. 'null'(추론 실패)도 드물게 허용.
+        // 'full' → 통과
       }
     }
 
@@ -1853,18 +1865,21 @@ async function runStyleCheck(contextStr) {
     const msg = (err && err.message) ? err.message : '알 수 없는 오류';
     // 429(쿼터) / 503(혼잡) 안내 메시지 분기
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
-      // 서버 메시지에 "day"/"daily"가 있으면 일일 한도, "minute"/"RPM"이면 분당 한도
-      const isDaily  = /\b(day|daily|per day|RequestsPerDay)\b/i.test(msg);
-      const isMinute = /\b(minute|per minute|RPM)\b/i.test(msg);
+      // 서버 원문에서 유형 추정
+      const isDaily  = /(day|daily|per day|RequestsPerDay|PerDay)/i.test(msg);
+      const isMinute = /(minute|per minute|RPM|PerMinute)/i.test(msg);
+      // 서버 원문 일부도 토스트에 포함 (사용자가 정확한 원인 파악 가능)
+      const detailMatch = msg.match(/429\s*[:：-]\s*(.+)/);
+      const detail = detailMatch ? detailMatch[1].slice(0, 100) : '';
       let hint;
       if (isDaily) {
-        hint = '일일 한도 초과. 내일 다시 시도하거나 다른 API 키 사용 필요';
+        hint = '일일 한도 초과. 내일 리셋 되거나 새 API 키로 교체 필요';
       } else if (isMinute) {
-        hint = '분당 한도 초과. 1분 후 다시 시도해 주세요';
+        hint = '분당 한도 초과. 1분 후 다시 시도';
       } else {
-        hint = '쿼터 초과. 잠시 후 다시 시도해 주세요';
+        hint = '쿼터 초과' + (detail ? ' — ' + detail : '. AI Studio에서 사용량 확인');
       }
-      toast(hint, 5500);
+      toast(hint, 7000);
     } else if (msg.indexOf('503') >= 0 || msg.indexOf('overload') >= 0) {
       toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
     } else if (msg.indexOf('파싱') >= 0) {
