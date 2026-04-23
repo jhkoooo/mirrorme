@@ -21,7 +21,6 @@ const homeCards     = document.querySelectorAll('.homeCard');
 const cameraTopBar  = document.getElementById('cameraTopBar');
 const homeBtn       = document.getElementById('homeBtn');
 const controls      = document.getElementById('controls');
-const flipBtn       = document.getElementById('flipBtn');
 const shutterBtn    = document.getElementById('shutterBtn');
 const galleryBtn    = document.getElementById('galleryBtn');
 const zoomBadge     = document.getElementById('zoomBadge');
@@ -266,18 +265,6 @@ homeCards.forEach(card => {
 // 카메라 화면의 ← 홈 버튼
 homeBtn.addEventListener('click', () => {
   showHome();
-});
-
-// 카메라 전환
-flipBtn.addEventListener('click', async () => {
-  const next = currentFacing === 'user' ? 'environment' : 'user';
-  try {
-    await startCamera(next);
-  } catch (err) {
-    console.error('카메라 전환 실패:', err);
-    try { await startCamera(currentFacing); }
-    catch (e) { showStartError('카메라 전환 불가'); }
-  }
 });
 
 // ============================================================
@@ -1563,6 +1550,13 @@ const TONE_DIRECTIVES = {
   balanced: '객관적이고 분석적인 톤으로, 친절하되 직설적으로 평가해.',
   expert:   '패션 전문가·스타일리스트 톤으로 평가해. 전문 용어(실루엣/톤 온 톤/레이어링/드레이프 등) 적극 사용. 유행 흐름도 언급.',
 };
+
+// 프리미엄 전용 톤(후보). Phase C(배포·로그인) 시점에 isPremium(user) 검사로 락 적용 예정.
+// 지금은 단순 태그로만 존재 — 본인 사용 단계에선 모두 자유 사용.
+const PREMIUM_TONES = new Set(['expert']);
+function isPremiumTone(tone) {
+  return PREMIUM_TONES.has(tone);
+}
 
 function getTone() {
   const v = (function(){ try { return localStorage.getItem(TONE_STORAGE); } catch(e) { return null; } })();
