@@ -83,6 +83,11 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 48. v3.7.10 — JSON 파싱 실패도 자동 재시도 대상에 포함
+**프롬프트**: "처음에 응답이깨져 재시도가 필요해요 라는 오류발생해. 두번째 돌리니까 되긴한다"
+**수정 파일**: `docs/app.js`
+**내용**: `gemini-2.5-flash`가 간헐적으로 응답 JSON을 살짝 깨뜨리는 현상이 있어서 첫 호출이 실패하고 두 번째에 성공하는 패턴 발생. `callGeminiVisionWithRetry`의 `isRetryable` 조건에 `'응답 파싱 실패'` 키워드 추가해 파싱 실패 시에도 자동 재시도(기존 503과 동일한 backoff). 사용자는 한 번만 눌러도 됨.
+
 ### 47. v3.7.9 — Gemini 2.0 Flash 신규 차단 → 2.5-flash 전환
 **프롬프트**: "분석실패 : API 404 : This model models/gemini-2.0-flash is no longer available to new users."
 **수정 파일**: `docs/app.js`

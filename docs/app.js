@@ -1678,7 +1678,8 @@ async function callGeminiVisionWithRetry(apiKey, blob, context, tone, onRetry) {
         msg.indexOf('503') >= 0 ||
         msg.indexOf('502') >= 0 ||
         msg.indexOf('overload') >= 0 ||
-        msg.indexOf('UNAVAILABLE') >= 0;
+        msg.indexOf('UNAVAILABLE') >= 0 ||
+        msg.indexOf('응답 파싱 실패') >= 0;  // Gemini가 간헐적으로 JSON 깨뜨리는 케이스도 자동 재시도
       if (!isRetryable) throw err;
       if (attempt === DELAYS.length) throw err;
       if (typeof onRetry === 'function') onRetry(attempt + 1, DELAYS.length);
