@@ -254,6 +254,10 @@
       border-radius: 18px 18px 0 0;
       padding: 18px 20px calc(env(safe-area-inset-bottom, 0px) + 18px);
       display: flex; flex-direction: column; gap: 14px;
+      /* 내용이 길어도 시트 안에서 스크롤 가능하게 */
+      max-height: 85vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
     #settings .sheetHeader {
       display: flex; justify-content: space-between; align-items: center;
@@ -1315,12 +1319,6 @@
           <button class="btnGhost" id="geminiKeyClear">삭제</button>
           <button class="btnPrimary" id="geminiKeySave">저장</button>
         </div>
-      </div>
-
-      <div class="settingGroup">
-        <label>기록 배지</label>
-        <div id="milestoneBadges" class="milestoneBadges"></div>
-        <div class="settingHint">꾸준히 기록할수록 배지가 해금됩니다. 알림·공유 없이 조용히.</div>
       </div>
 
       <div class="settingGroup">

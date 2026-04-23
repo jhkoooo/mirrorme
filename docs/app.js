@@ -1730,7 +1730,6 @@ function refreshKeyStatus() {
 function openSettings() {
   refreshKeyStatus();
   refreshToneChips();
-  renderMilestoneBadges();
   settings.classList.remove('hidden');
 }
 
@@ -1784,6 +1783,9 @@ async function computeMilestones() {
 }
 
 async function renderMilestoneBadges() {
+  // 현재(v3.10.1) 배지 UI는 설정에서 제거됨. 이 함수는 트렌드 분석(예정)에서
+  // 동일한 데이터로 재사용 예정이라 유지. 타겟 엘리먼트 없으면 조용히 종료.
+  if (!milestoneBadgesEl) return;
   try {
     const unlocked = await computeMilestones();
     milestoneBadgesEl.innerHTML = '';
@@ -1915,6 +1917,41 @@ function buildStyleCheckPrompt(tone, context) {
   ].join('\n');
 }
 
+// 분석 전송용 이미지 다운스케일. Gemini에 원본을 보내면 타일 토큰이 많이 잡히고
+// 서버 처리도 느려져 503 빈도가 올라감. 768px 이하로 축소해 토큰·처리·전송 모두 경량화.
+// 패션 분석 품질엔 영향 거의 없음 (색상·실루엣·아이템 판별은 768px로 충분).
+async function downscaleImageBlob(blob, maxDim, quality) {
+  if (!maxDim) maxDim = 768;
+  if (!quality) quality = 0.85;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = (e) => reject(e);
+      i.src = url;
+    });
+    const w0 = img.naturalWidth || img.width;
+    const h0 = img.naturalHeight || img.height;
+    if (!w0 || !h0) return blob;
+    if (w0 <= maxDim && h0 <= maxDim) return blob; // 이미 충분히 작으면 그대로
+    const scale = Math.min(maxDim / w0, maxDim / h0);
+    const w = Math.max(1, Math.round(w0 * scale));
+    const h = Math.max(1, Math.round(h0 * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    const out = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    return out || blob;
+  } catch (e) {
+    console.warn('[MyStyle] 다운스케일 실패, 원본 사용:', e && e.message);
+    return blob;
+  } finally {
+    try { URL.revokeObjectURL(url); } catch (_) {}
+  }
+}
+
 function bufferToBase64(buf) {
   const bytes = new Uint8Array(buf);
   let binary = '';
@@ -1964,7 +2001,9 @@ async function blobToBase64(blob) {
 // 503(overload)·일부 5xx는 자동 재시도. exponential backoff로 사용자가 수동으로
 // 여러 번 누르던 동작을 앱이 대신 수행. 429(쿼터)는 여기서 재시도 안 함(기다려야 함).
 async function callGeminiVisionWithRetry(apiKey, blob, context, tone, onRetry) {
-  const DELAYS = [700, 1500, 2500]; // ms, 최대 3회 재시도
+  // 5회 재시도 + 점점 긴 간격. 503은 과금 안 되는 서버 에러라 공격적으로 재시도 OK.
+  // 파싱 실패(과금됨)도 드물지만 포함 — few-shot 예시 + responseSchema 덕에 드물게만 발생.
+  const DELAYS = [700, 1500, 3000, 5000, 8000];
   let lastErr;
   for (let attempt = 0; attempt <= DELAYS.length; attempt++) {
     try {
@@ -2148,9 +2187,11 @@ async function runStyleCheck(contextStr) {
     // IndexedDB에서 최신 blob을 다시 읽어와 안전하게 사용.
     const fresh = await getPhoto(currentViewingPhoto.id);
     if (!fresh || !fresh.blob) throw new Error('사진을 다시 불러올 수 없습니다');
+    // 전송용 이미지 768px로 축소 (토큰·처리 부담 감소로 503 빈도↓, 비용↓)
+    const blobForApi = await downscaleImageBlob(fresh.blob, 768, 0.85);
     const tone = getTone();
     const result = await callGeminiVisionWithRetry(
-      key, fresh.blob, contextStr, tone,
+      key, blobForApi, contextStr, tone,
       (n, total) => renderStyleCheckCard({ loading: true, retry: { n, total } })
     );
 
