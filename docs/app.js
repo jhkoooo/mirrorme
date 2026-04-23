@@ -83,6 +83,28 @@ const contextFreeInput   = document.getElementById('contextFreeInput');
 const contextSkip        = document.getElementById('contextSkip');
 const contextSubmit      = document.getElementById('contextSubmit');
 
+// 나의 스타일 리포트 (개인 트렌드)
+const trendView         = document.getElementById('trendView');
+const trendBack         = document.getElementById('trendBack');
+const trendEmpty        = document.getElementById('trendEmpty');
+const trendContent      = document.getElementById('trendContent');
+const trendEmptyCount   = document.getElementById('trendEmptyCount');
+const trendEmptyCta     = document.getElementById('trendEmptyCta');
+const trendHeroMonth    = document.getElementById('trendHeroMonth');
+const trendHeroDays     = document.getElementById('trendHeroDays');
+const trendHeroAvg      = document.getElementById('trendHeroAvg');
+const trendHeroBest     = document.getElementById('trendHeroBest');
+const trendHeroBestCard = document.getElementById('trendHeroBestCard');
+const trendAiComment    = document.getElementById('trendAiComment');
+const trendBadgesEl     = document.getElementById('trendBadges');
+const trendVibesEl      = document.getElementById('trendVibes');
+const trendScoreTrendEl = document.getElementById('trendScoreTrend');
+const trendTagTabs      = document.getElementById('trendTagTabs');
+const trendTopTagsEl    = document.getElementById('trendTopTags');
+const trendColorsEl     = document.getElementById('trendColors');
+const trendTotalsRow    = document.getElementById('trendTotalsRow');
+const trendTotalsFirst  = document.getElementById('trendTotalsFirst');
+
 // ============================================================
 //  상태
 // ============================================================
@@ -269,6 +291,8 @@ homeCards.forEach(card => {
       enterCameraMode(mode);
     } else if (mode === 'album') {
       enterAlbumFromHome();
+    } else if (mode === 'report') {
+      enterTrendReport();
     }
   });
 });
@@ -1267,6 +1291,13 @@ async function closePhotoView() {
     try { await pendingUpdate; } catch (e) {}
     await renderGallery();
   }
+  // 리포트에서 사진 상세로 들어왔다면 리포트로 복귀 (데이터 새로고침 — 메모/태그 수정 반영)
+  if (galleryEntryPoint === 'report' && trendView) {
+    trendView.classList.remove('hidden');
+    galleryEntryPoint = 'home';
+    try { await pendingUpdate; } catch (e) {}
+    renderTrendReport();
+  }
 }
 
 function toggleBars() {
@@ -1807,6 +1838,629 @@ async function renderMilestoneBadges() {
     console.error('[MyStyle] 배지 렌더 실패:', e);
   }
 }
+
+// ─── 나의 스타일 리포트 (개인 트렌드) ────────────────────────
+// 본인 폰의 IndexedDB 데이터만 집계한다. 백엔드 없음, 모든 계산 브라우저에서.
+// 7개 섹션: (1) 이번 달 요약 (2) 배지 (3) 바이브 분포 (4) 점수 추이
+//          (5) 자주 쓴 아이템 (6) 색상 분포 (7) 전체 통계
+
+const REPORT_MIN_STYLE_CHECKS = 5;
+
+// 한국어 색상 키워드 → 표시명 + hex 매핑. 태그 텍스트에서 추출.
+const COLOR_DICT = [
+  { key: 'black',   match: ['검정', '블랙', '까만', '검은'],                    label: '검정',   hex: '#1a1a1a' },
+  { key: 'white',   match: ['흰', '하얀', '화이트', '아이보리'],                 label: '흰색',   hex: '#f2f2f2' },
+  { key: 'gray',    match: ['회색', '그레이', '차콜', '연회색'],                label: '회색',   hex: '#8a8a8a' },
+  { key: 'beige',   match: ['베이지', '크림', '아이보리'],                      label: '베이지', hex: '#c9b79a' },
+  { key: 'brown',   match: ['갈색', '브라운', '카멜', '초콜릿'],                label: '갈색',   hex: '#8b5a3c' },
+  { key: 'navy',    match: ['네이비', '감청'],                                  label: '네이비', hex: '#1e2a5a' },
+  { key: 'blue',    match: ['파랑', '파란', '블루', '하늘색', '스카이'],         label: '파랑',   hex: '#4a82d6' },
+  { key: 'green',   match: ['초록', '그린', '카키', '올리브', '민트'],           label: '초록',   hex: '#4f8e5a' },
+  { key: 'red',     match: ['빨강', '빨간', '레드', '버건디', '와인', '자주'],   label: '빨강',   hex: '#c23a3a' },
+  { key: 'pink',    match: ['분홍', '핑크', '로즈'],                            label: '핑크',   hex: '#e48ab2' },
+  { key: 'purple',  match: ['보라', '퍼플', '라벤더', '바이올렛'],               label: '보라',   hex: '#9368c7' },
+  { key: 'yellow',  match: ['노랑', '노란', '옐로우', '머스타드'],               label: '노랑',   hex: '#e0b640' },
+  { key: 'orange',  match: ['주황', '오렌지', '살구', '코랄'],                   label: '주황',   hex: '#e08040' },
+  { key: 'denim',   match: ['청', '데님', '인디고'],                            label: '데님',   hex: '#3d5d8a' },
+];
+
+function detectColorsInText(text) {
+  if (!text) return [];
+  const t = String(text).toLowerCase();
+  const hits = [];
+  for (const c of COLOR_DICT) {
+    for (const m of c.match) {
+      if (t.indexOf(m) >= 0) { hits.push(c.key); break; }
+    }
+  }
+  return hits;
+}
+
+// 전체 사진에서 개인 트렌드 집계. OOTD(후면 촬영)만 대상.
+async function computeTrends() {
+  const all = (await getAllPhotos()).map(normalizePhoto);
+  const ootd = all.filter(p => p.facing === 'environment');
+
+  const now = new Date();
+  const thisY = now.getFullYear();
+  const thisM = now.getMonth();
+
+  // 이번 달 기록
+  const thisMonthPhotos = ootd.filter(p => {
+    const d = new Date(p.timestamp);
+    return d.getFullYear() === thisY && d.getMonth() === thisM;
+  });
+  const thisMonthDays = new Set();
+  for (const p of thisMonthPhotos) {
+    const d = new Date(p.timestamp);
+    thisMonthDays.add(d.getDate());
+  }
+  const thisMonthChecked = thisMonthPhotos.filter(p => p.styleCheck && typeof p.styleCheck.score === 'number');
+  const thisMonthAvg = thisMonthChecked.length
+    ? thisMonthChecked.reduce((s, p) => s + p.styleCheck.score, 0) / thisMonthChecked.length
+    : null;
+  const thisMonthBest = thisMonthChecked.slice().sort((a, b) => b.styleCheck.score - a.styleCheck.score)[0] || null;
+
+  // 스타일 검사 총 횟수 (5회 empty state 기준)
+  const totalChecked = ootd.filter(p => p.styleCheck && typeof p.styleCheck.score === 'number');
+
+  // 바이브 분포
+  const vibeCount = new Map();
+  for (const p of ootd) {
+    const v = p.styleCheck && p.styleCheck.vibe;
+    if (v && v.trim()) {
+      const k = v.trim();
+      vibeCount.set(k, (vibeCount.get(k) || 0) + 1);
+    }
+  }
+  const vibeTotal = Array.from(vibeCount.values()).reduce((s, n) => s + n, 0);
+  const vibes = Array.from(vibeCount.entries())
+    .map(([name, count]) => ({ name, count, pct: vibeTotal ? count / vibeTotal : 0 }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  // 점수 월별 추이 (최근 12개월)
+  const monthMap = new Map(); // 'YYYY-MM' → sum/count
+  for (const p of totalChecked) {
+    const d = new Date(p.timestamp);
+    const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    const rec = monthMap.get(k) || { sum: 0, count: 0, y: d.getFullYear(), m: d.getMonth() };
+    rec.sum += p.styleCheck.score;
+    rec.count += 1;
+    monthMap.set(k, rec);
+  }
+  const scoreMonthly = Array.from(monthMap.entries())
+    .map(([k, v]) => ({ ym: k, avg: v.sum / v.count, count: v.count, y: v.y, m: v.m }))
+    .sort((a, b) => a.ym.localeCompare(b.ym))
+    .slice(-12);
+
+  // 자주 쓴 아이템 태그 (카테고리별)
+  const tagsByCat = { top: new Map(), bottom: new Map(), shoes: new Map(), outer: new Map(), accessory: new Map() };
+  for (const p of ootd) {
+    if (!p.tags) continue;
+    for (const cat of Object.keys(tagsByCat)) {
+      const v = (p.tags[cat] || '').trim();
+      if (!v) continue;
+      tagsByCat[cat].set(v, (tagsByCat[cat].get(v) || 0) + 1);
+    }
+  }
+  const topTags = {};
+  for (const cat of Object.keys(tagsByCat)) {
+    topTags[cat] = Array.from(tagsByCat[cat].entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }
+
+  // 색상 분포 (태그 + styleCheck.colorBalance 텍스트에서 키워드 추출)
+  const colorCount = new Map();
+  for (const p of ootd) {
+    const texts = [];
+    if (p.tags) {
+      for (const k of ['top', 'bottom', 'shoes', 'outer', 'accessory']) {
+        if (p.tags[k]) texts.push(p.tags[k]);
+      }
+    }
+    if (p.styleCheck && p.styleCheck.colorBalance) texts.push(p.styleCheck.colorBalance);
+    const hits = new Set();
+    for (const t of texts) for (const c of detectColorsInText(t)) hits.add(c);
+    for (const c of hits) colorCount.set(c, (colorCount.get(c) || 0) + 1);
+  }
+  const colorTotal = Array.from(colorCount.values()).reduce((s, n) => s + n, 0);
+  const colors = Array.from(colorCount.entries())
+    .map(([key, count]) => {
+      const def = COLOR_DICT.find(c => c.key === key);
+      return {
+        key, count,
+        pct: colorTotal ? count / colorTotal : 0,
+        label: def ? def.label : key,
+        hex: def ? def.hex : '#888',
+      };
+    })
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
+
+  // 전체 통계
+  const recordDays = new Set();
+  for (const p of ootd) {
+    const d = new Date(p.timestamp);
+    recordDays.add(d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate());
+  }
+  const firstPhoto = ootd.slice().sort((a, b) => a.timestamp - b.timestamp)[0] || null;
+
+  return {
+    totalChecked: totalChecked.length,
+    totals: {
+      days: recordDays.size,
+      ootdCount: ootd.length,
+      checkCount: totalChecked.length,
+    },
+    firstPhotoTs: firstPhoto ? firstPhoto.timestamp : null,
+    thisMonth: {
+      y: thisY, m: thisM,
+      days: thisMonthDays.size,
+      avg: thisMonthAvg,
+      best: thisMonthBest,
+    },
+    vibes, scoreMonthly, topTags, colors,
+  };
+}
+
+// 진입
+let trendCurrentTagCat = 'top';
+let trendLastData = null;
+
+async function enterTrendReport() {
+  home.classList.add('fading');
+  setTimeout(() => {
+    home.classList.add('hidden');
+    home.classList.remove('fading');
+  }, 280);
+  trendView.classList.remove('hidden');
+  await renderTrendReport();
+}
+
+function exitTrendReport() {
+  trendView.classList.add('hidden');
+  home.classList.remove('hidden');
+}
+
+async function renderTrendReport() {
+  let data;
+  try {
+    data = await computeTrends();
+  } catch (e) {
+    console.error('[MyStyle] 트렌드 집계 실패:', e);
+    toast('리포트를 불러오지 못했습니다');
+    return;
+  }
+  trendLastData = data;
+
+  // Empty state 기준: 스타일 검사 5회 미만
+  if (data.totalChecked < REPORT_MIN_STYLE_CHECKS) {
+    trendContent.classList.add('hidden');
+    trendEmpty.classList.remove('hidden');
+    trendEmptyCount.textContent = String(data.totalChecked);
+    return;
+  }
+  trendEmpty.classList.add('hidden');
+  trendContent.classList.remove('hidden');
+
+  renderTrendHero(data);
+  renderTrendBadges();
+  renderTrendVibes(data.vibes);
+  renderTrendScoreChart(data.scoreMonthly);
+  renderTrendTopTags(data.topTags, trendCurrentTagCat);
+  renderTrendColors(data.colors);
+  renderTrendTotals(data);
+  // AI 한 줄 코멘트 (하루 1회 캐시)
+  loadOrFetchTrendComment(data).catch(e => console.warn('[MyStyle] AI 코멘트 실패:', e && e.message));
+}
+
+function renderTrendHero(data) {
+  const tm = data.thisMonth;
+  trendHeroMonth.textContent = tm.y + '년 ' + (tm.m + 1) + '월';
+  trendHeroDays.textContent = String(tm.days);
+  trendHeroAvg.textContent = (tm.avg == null) ? '–' : tm.avg.toFixed(1);
+
+  if (tm.best) {
+    trendHeroBest.classList.add('show');
+    const best = tm.best;
+    const d = new Date(best.timestamp);
+    const dateStr = (d.getMonth() + 1) + '/' + d.getDate();
+    const scoreStr = best.styleCheck.score.toFixed(1);
+    const thumbUrl = getPhotoUrl(best);
+    trendHeroBestCard.innerHTML = '';
+    const thumb = document.createElement('div');
+    thumb.className = 'trendHeroBestThumb';
+    thumb.style.backgroundImage = 'url(' + thumbUrl + ')';
+    const meta = document.createElement('div');
+    meta.className = 'trendHeroBestMeta';
+    const dateEl = document.createElement('div');
+    dateEl.className = 'trendHeroBestDate';
+    dateEl.textContent = dateStr + ' · ' + scoreStr + '점';
+    const vibeEl = document.createElement('div');
+    vibeEl.className = 'trendHeroBestScore';
+    vibeEl.textContent = best.styleCheck.vibe || '';
+    meta.appendChild(dateEl);
+    meta.appendChild(vibeEl);
+    trendHeroBestCard.appendChild(thumb);
+    trendHeroBestCard.appendChild(meta);
+    // 탭하면 사진 상세로
+    trendHeroBestCard.onclick = () => openPhotoFromTrend(best);
+  } else {
+    trendHeroBest.classList.remove('show');
+  }
+}
+
+function openPhotoFromTrend(photo) {
+  // 사진 상세로 이동. 리포트는 그대로 둠 → 돌아오면 다시 보임.
+  trendView.classList.add('hidden');
+  galleryEntryPoint = 'report';
+  currentTab = 'environment';  // OOTD 탭 — 리포트는 모두 OOTD 데이터
+  openPhotoView(photo.id);
+}
+
+function renderTrendBadges() {
+  computeMilestones().then(unlocked => {
+    trendBadgesEl.innerHTML = '';
+    for (const def of MILESTONE_DEFS) {
+      const cell = document.createElement('div');
+      cell.className = 'trendBadge ' + (unlocked.has(def.id) ? 'unlocked' : 'locked');
+      const icon = document.createElement('div');
+      icon.className = 'trendBadgeIcon';
+      icon.textContent = def.icon;
+      const title = document.createElement('div');
+      title.className = 'trendBadgeTitle';
+      title.textContent = def.title;
+      const desc = document.createElement('div');
+      desc.className = 'trendBadgeDesc';
+      desc.textContent = def.desc;
+      cell.appendChild(icon);
+      cell.appendChild(title);
+      cell.appendChild(desc);
+      trendBadgesEl.appendChild(cell);
+    }
+  });
+}
+
+function renderTrendVibes(vibes) {
+  trendVibesEl.innerHTML = '';
+  if (!vibes || vibes.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'trendVibesEmpty';
+    empty.textContent = '아직 바이브 데이터가 부족합니다';
+    trendVibesEl.appendChild(empty);
+    return;
+  }
+  for (const v of vibes) {
+    const row = document.createElement('div');
+    row.className = 'trendVibeRow';
+    const head = document.createElement('div');
+    head.className = 'trendVibeHead';
+    const name = document.createElement('span');
+    name.className = 'trendVibeName';
+    name.textContent = v.name;
+    const pct = document.createElement('span');
+    pct.className = 'trendVibePct';
+    pct.textContent = Math.round(v.pct * 100) + '%';
+    head.appendChild(name); head.appendChild(pct);
+    const bar = document.createElement('div');
+    bar.className = 'trendVibeBar';
+    const fill = document.createElement('div');
+    fill.className = 'trendVibeBarFill';
+    fill.style.width = Math.max(2, v.pct * 100) + '%';
+    bar.appendChild(fill);
+    row.appendChild(head); row.appendChild(bar);
+    trendVibesEl.appendChild(row);
+  }
+}
+
+function renderTrendScoreChart(monthly) {
+  trendScoreTrendEl.innerHTML = '';
+  if (!monthly || monthly.length < 2) {
+    const empty = document.createElement('div');
+    empty.className = 'trendScoreEmpty';
+    empty.textContent = monthly && monthly.length === 1
+      ? '다음 달 기록이 쌓이면 추이가 보여요'
+      : '검사 기록이 더 쌓이면 추이가 보여요';
+    trendScoreTrendEl.appendChild(empty);
+    return;
+  }
+  // SVG 라인 차트
+  const W = 320, H = 160, pad = { t: 16, r: 14, b: 24, l: 28 };
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
+  const yMin = 0, yMax = 10;
+  const n = monthly.length;
+  const xAt = (i) => pad.l + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const yAt = (v) => pad.t + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('class', 'trendScoreChart');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+  // y 그리드 (2, 5, 8)
+  for (const y of [2, 5, 8]) {
+    const line = document.createElementNS(svgNS, 'line');
+    line.setAttribute('x1', pad.l); line.setAttribute('x2', pad.l + innerW);
+    line.setAttribute('y1', yAt(y)); line.setAttribute('y2', yAt(y));
+    line.setAttribute('stroke', 'rgba(255,255,255,0.07)');
+    line.setAttribute('stroke-dasharray', '3 3');
+    svg.appendChild(line);
+    const lbl = document.createElementNS(svgNS, 'text');
+    lbl.setAttribute('x', 4); lbl.setAttribute('y', yAt(y) + 3);
+    lbl.setAttribute('fill', 'rgba(255,255,255,0.35)');
+    lbl.setAttribute('font-size', '9');
+    lbl.textContent = String(y);
+    svg.appendChild(lbl);
+  }
+
+  // 라인
+  const pts = monthly.map((d, i) => xAt(i) + ',' + yAt(d.avg)).join(' ');
+  const poly = document.createElementNS(svgNS, 'polyline');
+  poly.setAttribute('points', pts);
+  poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', '#a490ff');
+  poly.setAttribute('stroke-width', '2');
+  poly.setAttribute('stroke-linecap', 'round');
+  poly.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(poly);
+
+  // 점
+  for (let i = 0; i < n; i++) {
+    const d = monthly[i];
+    const cx = xAt(i), cy = yAt(d.avg);
+    const dot = document.createElementNS(svgNS, 'circle');
+    dot.setAttribute('cx', cx); dot.setAttribute('cy', cy);
+    dot.setAttribute('r', '3.5');
+    dot.setAttribute('fill', '#a490ff');
+    svg.appendChild(dot);
+    // 월 레이블
+    const lbl = document.createElementNS(svgNS, 'text');
+    lbl.setAttribute('x', cx); lbl.setAttribute('y', H - 6);
+    lbl.setAttribute('fill', 'rgba(255,255,255,0.45)');
+    lbl.setAttribute('font-size', '9');
+    lbl.setAttribute('text-anchor', 'middle');
+    lbl.textContent = (d.m + 1) + '월';
+    svg.appendChild(lbl);
+    // 값 레이블 (마지막 점만)
+    if (i === n - 1) {
+      const v = document.createElementNS(svgNS, 'text');
+      v.setAttribute('x', cx); v.setAttribute('y', cy - 8);
+      v.setAttribute('fill', '#fff');
+      v.setAttribute('font-size', '10');
+      v.setAttribute('font-weight', '600');
+      v.setAttribute('text-anchor', 'middle');
+      v.textContent = d.avg.toFixed(1);
+      svg.appendChild(v);
+    }
+  }
+
+  trendScoreTrendEl.appendChild(svg);
+  const cap = document.createElement('div');
+  cap.className = 'trendScoreCaption';
+  cap.textContent = '최근 ' + n + '개월 평균 점수';
+  trendScoreTrendEl.appendChild(cap);
+}
+
+function renderTrendTopTags(topTags, cat) {
+  // 탭 하이라이트
+  trendTagTabs.querySelectorAll('.trendTagTab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === cat);
+  });
+  trendTopTagsEl.innerHTML = '';
+  const list = (topTags && topTags[cat]) || [];
+  if (list.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'trendTopTagsEmpty';
+    empty.textContent = '이 카테고리에 기록된 태그가 없어요';
+    trendTopTagsEl.appendChild(empty);
+    return;
+  }
+  const maxCount = list[0].count;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    const row = document.createElement('div');
+    row.className = 'trendTagRow';
+    const rank = document.createElement('div');
+    rank.className = 'trendTagRank';
+    rank.textContent = String(i + 1);
+    const name = document.createElement('div');
+    name.className = 'trendTagName';
+    name.textContent = item.name;
+    const bar = document.createElement('div');
+    bar.className = 'trendTagBar';
+    const fill = document.createElement('div');
+    fill.className = 'trendTagBarFill';
+    fill.style.width = Math.max(4, (item.count / maxCount) * 100) + '%';
+    bar.appendChild(fill);
+    const count = document.createElement('div');
+    count.className = 'trendTagCount';
+    count.textContent = item.count + '회';
+    row.appendChild(rank); row.appendChild(name); row.appendChild(bar); row.appendChild(count);
+    trendTopTagsEl.appendChild(row);
+  }
+}
+
+function renderTrendColors(colors) {
+  trendColorsEl.innerHTML = '';
+  if (!colors || colors.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'trendColorsEmpty';
+    empty.textContent = '아직 색상 데이터가 부족합니다';
+    trendColorsEl.appendChild(empty);
+    return;
+  }
+  for (const c of colors) {
+    const row = document.createElement('div');
+    row.className = 'trendColorRow';
+    const sw = document.createElement('div');
+    sw.className = 'trendColorSwatch';
+    sw.style.background = c.hex;
+    const name = document.createElement('div');
+    name.className = 'trendColorName';
+    name.textContent = c.label;
+    const bar = document.createElement('div');
+    bar.className = 'trendColorBar';
+    const fill = document.createElement('div');
+    fill.className = 'trendColorBarFill';
+    fill.style.width = Math.max(3, c.pct * 100) + '%';
+    fill.style.background = c.hex;
+    bar.appendChild(fill);
+    const pct = document.createElement('div');
+    pct.className = 'trendColorPct';
+    pct.textContent = Math.round(c.pct * 100) + '%';
+    row.appendChild(sw); row.appendChild(name); row.appendChild(bar); row.appendChild(pct);
+    trendColorsEl.appendChild(row);
+  }
+}
+
+function renderTrendTotals(data) {
+  trendTotalsRow.innerHTML = '';
+  const cells = [
+    { val: data.totals.days,       label: '총 기록일' },
+    { val: data.totals.ootdCount,  label: '총 OOTD' },
+    { val: data.totals.checkCount, label: '스타일 검사' },
+  ];
+  for (const c of cells) {
+    const cell = document.createElement('div');
+    cell.className = 'trendTotalsCell';
+    const val = document.createElement('div');
+    val.className = 'trendTotalsCellVal';
+    val.textContent = String(c.val);
+    const lbl = document.createElement('div');
+    lbl.className = 'trendTotalsCellLabel';
+    lbl.textContent = c.label;
+    cell.appendChild(val); cell.appendChild(lbl);
+    trendTotalsRow.appendChild(cell);
+  }
+  if (data.firstPhotoTs) {
+    const d = new Date(data.firstPhotoTs);
+    trendTotalsFirst.textContent = '첫 기록: ' + d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  } else {
+    trendTotalsFirst.textContent = '';
+  }
+}
+
+// ─── AI 한 줄 코멘트 (하루 1회 캐시) ─────────────────────────
+const TREND_COMMENT_CACHE_KEY = 'mystyle.trendComment.v1';
+
+function trendDataSignature(data) {
+  // 캐시 키 용도 — 데이터가 바뀌지 않았으면 같은 날 같은 코멘트
+  const vibes = (data.vibes || []).map(v => v.name + ':' + v.count).join(',');
+  const colors = (data.colors || []).map(c => c.key + ':' + c.count).join(',');
+  return data.totals.ootdCount + '|' + data.totals.checkCount + '|' + vibes + '|' + colors;
+}
+
+function readCachedTrendComment(sig) {
+  try {
+    const raw = localStorage.getItem(TREND_COMMENT_CACHE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || obj.sig !== sig) return null;
+    const today = new Date().toISOString().slice(0, 10);
+    if (obj.date !== today) return null;
+    return obj.text || null;
+  } catch (_) { return null; }
+}
+
+function writeCachedTrendComment(sig, text) {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    localStorage.setItem(TREND_COMMENT_CACHE_KEY, JSON.stringify({ sig, date: today, text }));
+  } catch (_) {}
+}
+
+async function loadOrFetchTrendComment(data) {
+  const sig = trendDataSignature(data);
+  const cached = readCachedTrendComment(sig);
+  if (cached) {
+    trendAiComment.classList.remove('loading');
+    trendAiComment.textContent = cached;
+    return;
+  }
+  // API 키가 없으면 조용히 스킵
+  const key = getGeminiKey && getGeminiKey();
+  if (!key) { trendAiComment.textContent = ''; return; }
+
+  trendAiComment.classList.add('loading');
+  trendAiComment.textContent = '한 줄 코멘트 생성 중…';
+
+  try {
+    const text = await callGeminiTrendComment(key, data);
+    if (text && text.trim()) {
+      writeCachedTrendComment(sig, text.trim());
+      trendAiComment.classList.remove('loading');
+      trendAiComment.textContent = text.trim();
+    } else {
+      trendAiComment.textContent = '';
+    }
+  } catch (e) {
+    console.warn('[MyStyle] 트렌드 코멘트 실패:', e && e.message);
+    trendAiComment.classList.remove('loading');
+    trendAiComment.textContent = '';
+  }
+}
+
+async function callGeminiTrendComment(apiKey, data) {
+  const vibesStr = (data.vibes || []).slice(0, 4)
+    .map(v => v.name + '(' + Math.round(v.pct * 100) + '%)').join(', ') || '없음';
+  const colorsStr = (data.colors || []).slice(0, 5)
+    .map(c => c.label + '(' + Math.round(c.pct * 100) + '%)').join(', ') || '없음';
+  const scoreStr = (data.scoreMonthly || []).slice(-3)
+    .map(m => (m.m + 1) + '월 ' + m.avg.toFixed(1)).join(' → ') || '없음';
+
+  const prompt =
+    '다음은 한 사용자의 개인 스타일 기록 통계입니다.\n' +
+    '- 바이브 분포: ' + vibesStr + '\n' +
+    '- 색상 분포: ' + colorsStr + '\n' +
+    '- 점수 추이: ' + scoreStr + '\n' +
+    '- 총 OOTD: ' + data.totals.ootdCount + '장, 검사 ' + data.totals.checkCount + '회\n' +
+    '\n' +
+    '이 사람에게 본인 스타일 패턴을 객관적으로 알려주는 코멘트를 한국어 1~2문장으로 간결히 써주세요.' +
+    ' 친근하지만 과장하지 마세요. 이모지·마크다운·따옴표 금지. 평문만.';
+
+  const body = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.6, maxOutputTokens: 160 },
+  };
+  const res = await fetch(GEMINI_ENDPOINT + '?key=' + encodeURIComponent(apiKey), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  const text = j && j.candidates && j.candidates[0] && j.candidates[0].content
+    && j.candidates[0].content.parts && j.candidates[0].content.parts[0]
+    && j.candidates[0].content.parts[0].text;
+  return (text || '').replace(/^["'`]+|["'`]+$/g, '').trim();
+}
+
+// 태그 탭 전환
+if (trendTagTabs) {
+  trendTagTabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.trendTagTab');
+    if (!btn) return;
+    const cat = btn.dataset.cat;
+    if (!cat || !trendLastData) return;
+    trendCurrentTagCat = cat;
+    renderTrendTopTags(trendLastData.topTags, cat);
+  });
+}
+
+// 돌아가기 + empty CTA
+if (trendBack) trendBack.addEventListener('click', exitTrendReport);
+if (trendEmptyCta) trendEmptyCta.addEventListener('click', () => {
+  trendView.classList.add('hidden');
+  enterCameraMode('ootd');
+});
+
 function closeSettings() {
   settings.classList.add('hidden');
   geminiKeyInput.value = '';

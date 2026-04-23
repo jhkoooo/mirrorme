@@ -464,6 +464,360 @@
     }
     .homeCardArrow svg { width: 18px; height: 18px; }
 
+    /* ============ 나의 스타일 리포트 (개인 트렌드) ============ */
+    #trendView {
+      position: fixed; inset: 0;
+      background: linear-gradient(180deg, #0a0a0c 0%, #16161a 100%);
+      z-index: 95;
+      display: flex; flex-direction: column;
+      touch-action: pan-y;
+    }
+    #trendTopBar {
+      flex-shrink: 0;
+      padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 8px;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(10,10,12,0.85);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    #trendBack {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.08);
+      border-radius: 50%;
+      color: #fff;
+    }
+    #trendBack svg { width: 18px; height: 18px; }
+    .trendTitle {
+      flex: 1;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    #trendBody {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 28px);
+      display: flex; flex-direction: column; gap: 14px;
+    }
+
+    /* Empty state */
+    #trendEmpty {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 60px 24px;
+      gap: 10px;
+    }
+    .trendEmptyIcon {
+      width: 64px; height: 64px;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.06);
+      border-radius: 16px;
+      margin-bottom: 4px;
+      color: rgba(255,255,255,0.55);
+    }
+    .trendEmptyIcon svg { width: 30px; height: 30px; }
+    .trendEmptyTitle {
+      font-size: 18px; font-weight: 600;
+      letter-spacing: -0.1px;
+    }
+    .trendEmptyDesc {
+      font-size: 13px;
+      opacity: 0.6;
+      line-height: 1.55;
+    }
+    .trendEmptyProgress {
+      font-size: 12px;
+      opacity: 0.45;
+      margin: 6px 0 14px;
+    }
+    #trendEmptyCta {
+      padding: 11px 20px;
+      border-radius: 12px;
+      font-size: 14px; font-weight: 600;
+      background: #fff; color: #000;
+      border: none;
+    }
+    #trendEmptyCta:active { opacity: 0.85; }
+
+    /* Section common */
+    .trendSection {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 16px 16px 18px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .trendSectionTitle {
+      font-size: 13px; font-weight: 600;
+      opacity: 0.8;
+      letter-spacing: 0.2px;
+    }
+
+    /* (1) Hero */
+    .trendHero {
+      background: linear-gradient(160deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.09);
+      gap: 14px;
+    }
+    .trendHeroMonth {
+      font-size: 13px; opacity: 0.55;
+      letter-spacing: 0.3px;
+    }
+    .trendHeroStats {
+      display: flex; align-items: center; gap: 18px;
+    }
+    .trendHeroStat { flex: 1; }
+    .trendHeroStatVal {
+      font-size: 32px; font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .trendHeroStatLabel {
+      font-size: 11px; opacity: 0.5;
+      margin-top: 2px;
+    }
+    .trendHeroDivider {
+      width: 1px; align-self: stretch;
+      background: rgba(255,255,255,0.1);
+      margin: 4px 0;
+    }
+    .trendHeroBest { display: none; }
+    .trendHeroBest.show { display: block; }
+    .trendHeroBestLabel {
+      font-size: 11px; opacity: 0.5;
+      margin-bottom: 6px;
+      letter-spacing: 0.3px;
+    }
+    .trendHeroBestCard {
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 10px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .trendHeroBestThumb {
+      width: 56px; height: 56px;
+      border-radius: 10px;
+      background-size: cover;
+      background-position: center;
+      flex-shrink: 0;
+    }
+    .trendHeroBestMeta {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .trendHeroBestDate {
+      font-size: 13px; font-weight: 600;
+    }
+    .trendHeroBestScore {
+      font-size: 12px; opacity: 0.65;
+    }
+    .trendAiComment {
+      font-size: 13px; line-height: 1.5;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.04);
+      border-left: 2px solid rgba(255,255,255,0.25);
+      border-radius: 6px;
+      opacity: 0.85;
+    }
+    .trendAiComment.loading {
+      opacity: 0.4;
+      font-style: italic;
+    }
+    .trendAiComment:empty { display: none; }
+
+    /* (2) Badges */
+    .trendBadges {
+      display: flex; gap: 10px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 4px;
+      margin: 0 -4px;
+      padding-left: 4px; padding-right: 4px;
+    }
+    .trendBadges::-webkit-scrollbar { display: none; }
+    .trendBadge {
+      flex-shrink: 0;
+      width: 84px;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 6px;
+      padding: 12px 8px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.06);
+      text-align: center;
+    }
+    .trendBadge.locked {
+      opacity: 0.35;
+      filter: grayscale(1);
+    }
+    .trendBadgeIcon { font-size: 26px; }
+    .trendBadgeTitle {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.1px;
+    }
+    .trendBadgeDesc {
+      font-size: 10px; opacity: 0.55;
+      line-height: 1.3;
+    }
+
+    /* (3) Vibes */
+    .trendVibes { display: flex; flex-direction: column; gap: 10px; }
+    .trendVibeRow {
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .trendVibeHead {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 12px;
+    }
+    .trendVibeName { font-weight: 600; opacity: 0.9; }
+    .trendVibePct { opacity: 0.55; font-variant-numeric: tabular-nums; }
+    .trendVibeBar {
+      height: 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .trendVibeBarFill {
+      height: 100%;
+      background: linear-gradient(90deg, #6ea8ff, #b794f6);
+      border-radius: 4px;
+      transition: width 400ms ease;
+    }
+    .trendVibesEmpty {
+      font-size: 12px; opacity: 0.5; text-align: center; padding: 12px 0;
+    }
+
+    /* (4) Score trend */
+    .trendScoreTrend {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .trendScoreChart {
+      width: 100%; height: 160px;
+    }
+    .trendScoreCaption {
+      font-size: 11px; opacity: 0.5;
+      text-align: center;
+    }
+    .trendScoreEmpty {
+      font-size: 12px; opacity: 0.5; text-align: center; padding: 20px 0;
+    }
+
+    /* (5) Tag tabs */
+    .trendTagTabs {
+      display: flex; gap: 6px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .trendTagTabs::-webkit-scrollbar { display: none; }
+    .trendTagTab {
+      flex-shrink: 0;
+      padding: 6px 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 999px;
+      color: #fff;
+      font-size: 12px;
+    }
+    .trendTagTab.active {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.2);
+    }
+    .trendTopTags {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .trendTagRow {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .trendTagRank {
+      width: 18px; text-align: center;
+      font-size: 12px; opacity: 0.5;
+      font-weight: 700;
+    }
+    .trendTagName {
+      flex: 1; min-width: 0;
+      font-size: 13px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .trendTagBar {
+      flex: 1; height: 6px; border-radius: 3px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .trendTagBarFill {
+      height: 100%;
+      background: rgba(255,255,255,0.45);
+      border-radius: 3px;
+    }
+    .trendTagCount {
+      width: 36px; text-align: right;
+      font-size: 11px; opacity: 0.55;
+      font-variant-numeric: tabular-nums;
+    }
+    .trendTopTagsEmpty {
+      font-size: 12px; opacity: 0.5; text-align: center; padding: 14px 0;
+    }
+
+    /* (6) Colors */
+    .trendColors {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .trendColorRow {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .trendColorSwatch {
+      width: 18px; height: 18px; border-radius: 5px;
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .trendColorName {
+      width: 54px; font-size: 12px; opacity: 0.85;
+    }
+    .trendColorBar {
+      flex: 1; height: 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .trendColorBarFill {
+      height: 100%; border-radius: 4px;
+    }
+    .trendColorPct {
+      width: 36px; text-align: right;
+      font-size: 11px; opacity: 0.55;
+      font-variant-numeric: tabular-nums;
+    }
+    .trendColorsEmpty {
+      font-size: 12px; opacity: 0.5; text-align: center; padding: 12px 0;
+    }
+
+    /* (7) Totals */
+    .trendTotals { padding: 14px 16px; gap: 6px; }
+    .trendTotalsRow {
+      display: flex; justify-content: space-around;
+      gap: 8px;
+    }
+    .trendTotalsCell {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 2px;
+    }
+    .trendTotalsCellVal {
+      font-size: 16px; font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .trendTotalsCellLabel {
+      font-size: 10px; opacity: 0.5;
+      letter-spacing: 0.2px;
+    }
+    .trendTotalsFirst {
+      font-size: 11px; opacity: 0.4;
+      text-align: center;
+      margin-top: 4px;
+    }
+
     /* ============ 갤러리 ============ */
     #gallery {
       position: fixed; inset: 0;
@@ -1295,6 +1649,27 @@
           </svg>
         </div>
       </button>
+
+      <!-- 4. 나의 스타일 리포트 (개인 트렌드 분석) -->
+      <button class="homeCard" data-mode="report">
+        <div class="homeCardIcon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="20" x2="4" y2="10"/>
+            <line x1="10" y1="20" x2="10" y2="4"/>
+            <line x1="16" y1="20" x2="16" y2="13"/>
+            <line x1="3" y1="20.5" x2="21" y2="20.5"/>
+          </svg>
+        </div>
+        <div class="homeCardText">
+          <div class="homeCardTitle">나의 스타일 리포트</div>
+          <div class="homeCardSub">지금까지의 내 스타일 패턴 보기</div>
+        </div>
+        <div class="homeCardArrow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 6 15 12 9 18"/>
+          </svg>
+        </div>
+      </button>
     </div>
   </div>
 
@@ -1457,6 +1832,109 @@
       <div class="settingActions">
         <button class="btnGhost" id="contextSkip">건너뛰기</button>
         <button class="btnPrimary" id="contextSubmit">분석 시작</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 나의 스타일 리포트 (개인 트렌드 분석) -->
+  <div id="trendView" class="hidden">
+    <div id="trendTopBar">
+      <button id="trendBack" aria-label="홈으로">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 6 9 12 15 18"/>
+        </svg>
+      </button>
+      <div class="trendTitle">나의 스타일 리포트</div>
+      <div style="width:32px;"></div>
+    </div>
+
+    <div id="trendBody">
+      <!-- Empty state -->
+      <div id="trendEmpty" class="hidden">
+        <div class="trendEmptyIcon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="20" x2="4" y2="10"/>
+            <line x1="10" y1="20" x2="10" y2="4"/>
+            <line x1="16" y1="20" x2="16" y2="13"/>
+            <line x1="3" y1="20.5" x2="21" y2="20.5"/>
+          </svg>
+        </div>
+        <div class="trendEmptyTitle">아직 리포트가 없어요</div>
+        <div class="trendEmptyDesc">
+          OOTD를 촬영하고 ✨스타일 검사를<br/>
+          5번 이상 받으면 리포트가 만들어져요
+        </div>
+        <div class="trendEmptyProgress">
+          현재 검사 <span id="trendEmptyCount">0</span>/5회
+        </div>
+        <button id="trendEmptyCta" class="btnPrimary">오늘의 스타일 찍기</button>
+      </div>
+
+      <!-- Content -->
+      <div id="trendContent" class="hidden">
+        <!-- (1) 이번 달 요약 hero -->
+        <div class="trendSection trendHero">
+          <div class="trendHeroMonth" id="trendHeroMonth">이번 달</div>
+          <div class="trendHeroStats">
+            <div class="trendHeroStat">
+              <div class="trendHeroStatVal" id="trendHeroDays">0</div>
+              <div class="trendHeroStatLabel">기록일</div>
+            </div>
+            <div class="trendHeroDivider"></div>
+            <div class="trendHeroStat">
+              <div class="trendHeroStatVal" id="trendHeroAvg">–</div>
+              <div class="trendHeroStatLabel">평균 점수</div>
+            </div>
+          </div>
+          <div class="trendHeroBest" id="trendHeroBest">
+            <div class="trendHeroBestLabel">이번 달 베스트</div>
+            <div class="trendHeroBestCard" id="trendHeroBestCard"></div>
+          </div>
+          <div class="trendAiComment" id="trendAiComment"></div>
+        </div>
+
+        <!-- (2) 배지 -->
+        <div class="trendSection">
+          <div class="trendSectionTitle">🏅 기록배지</div>
+          <div class="trendBadges" id="trendBadges"></div>
+        </div>
+
+        <!-- (3) 바이브 분포 -->
+        <div class="trendSection">
+          <div class="trendSectionTitle">🎨 내가 자주 입는 스타일</div>
+          <div class="trendVibes" id="trendVibes"></div>
+        </div>
+
+        <!-- (4) 점수 추이 -->
+        <div class="trendSection">
+          <div class="trendSectionTitle">📈 점수 추이 (월별)</div>
+          <div class="trendScoreTrend" id="trendScoreTrend"></div>
+        </div>
+
+        <!-- (5) 자주 쓴 아이템 -->
+        <div class="trendSection">
+          <div class="trendSectionTitle">👕 자주 쓴 아이템</div>
+          <div class="trendTagTabs" id="trendTagTabs">
+            <button class="trendTagTab active" data-cat="top">상의</button>
+            <button class="trendTagTab" data-cat="bottom">하의</button>
+            <button class="trendTagTab" data-cat="shoes">신발</button>
+            <button class="trendTagTab" data-cat="outer">아우터</button>
+            <button class="trendTagTab" data-cat="accessory">액세서리</button>
+          </div>
+          <div class="trendTopTags" id="trendTopTags"></div>
+        </div>
+
+        <!-- (6) 색상 분포 -->
+        <div class="trendSection">
+          <div class="trendSectionTitle">🌈 색상 분포</div>
+          <div class="trendColors" id="trendColors"></div>
+        </div>
+
+        <!-- (7) 전체 통계 -->
+        <div class="trendSection trendTotals">
+          <div class="trendTotalsRow" id="trendTotalsRow"></div>
+          <div class="trendTotalsFirst" id="trendTotalsFirst"></div>
+        </div>
       </div>
     </div>
   </div>
