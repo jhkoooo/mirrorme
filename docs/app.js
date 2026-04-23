@@ -33,6 +33,13 @@ const galleryBody   = document.getElementById('galleryBody');
 const galleryEmpty  = document.getElementById('galleryEmpty');
 const photoCount    = document.getElementById('photoCount');
 
+// 캘린더 뷰
+const calendarBody       = document.getElementById('calendarBody');
+const calDaySheet        = document.getElementById('calDaySheet');
+const calDaySheetTitle   = document.getElementById('calDaySheetTitle');
+const calDaySheetClose   = document.getElementById('calDaySheetClose');
+const calDaySheetGrid    = document.getElementById('calDaySheetGrid');
+
 const photoView       = document.getElementById('photoView');
 const photoViewImgWrap= document.getElementById('photoViewImgWrap');
 const photoViewTopBar = document.getElementById('photoViewTopBar');
@@ -83,6 +90,9 @@ let currentFacing       = 'user';
 let videoFirstFrameReady = false;   // 첫 프레임 디코딩 완료 플래그
 let galleryEntryPoint   = 'home';   // 'home' | 'camera' — 앨범에서 돌아갈 곳
 let currentTab     = 'environment';   // OOTD가 기본 탭
+let currentViewMode = 'list';         // 'list' | 'calendar'
+let calYear  = 0;                     // 캘린더에서 보고 있는 연/월
+let calMonth = 0;                     // 0~11
 let currentViewingPhoto = null;       // 사진 상세에서 보고 있는 photo 객체
 let photoViewList  = [];              // 사진 상세 스와이프용: 현재 탭의 정렬된 photo 배열
 let photoViewIndex = 0;               // 위 배열에서 현재 위치
@@ -826,6 +836,7 @@ async function renderGallery() {
   // blob URL을 revoke하면 엑박으로 처리하는데, closePhotoView → renderGallery
   // 재호출 흐름에서 이 타이밍이 겹쳐 엑박이 발생했음.
   galleryBody.innerHTML = '';
+  calendarBody.innerHTML = '';
 
   const all = (await getAllPhotos()).map(normalizePhoto);
   const photos = all.filter(p => p.facing === currentTab);
@@ -833,14 +844,24 @@ async function renderGallery() {
 
   if (photos.length === 0) {
     galleryBody.classList.add('hidden');
+    calendarBody.classList.add('hidden');
     galleryEmpty.classList.remove('hidden');
     galleryEmpty.textContent = currentTab === 'environment'
       ? '아직 OOTD 사진이 없습니다.'
       : '아직 MyFace 사진이 없습니다.';
     return;
   }
-  galleryBody.classList.remove('hidden');
   galleryEmpty.classList.add('hidden');
+
+  // 뷰 모드에 따라 분기
+  if (currentViewMode === 'calendar') {
+    galleryBody.classList.add('hidden');
+    calendarBody.classList.remove('hidden');
+    renderCalendar(photos);
+    return;
+  }
+  galleryBody.classList.remove('hidden');
+  calendarBody.classList.add('hidden');
 
   // 날짜별 그룹화
   const groups = groupByDate(photos);
@@ -893,6 +914,205 @@ function groupByDate(photos) {
       photos: g.photos.sort((a, b) => b.timestamp - a.timestamp),
     }));
 }
+
+// ─── 캘린더 뷰 ───────────────────────────────────────
+// 날짜 셀의 대표 썸네일 선정 규칙: 하트 즐겨찾기 > 스타일 점수 높은 것 > 첫 촬영
+function pickRepresentativePhoto(photos) {
+  if (!photos || photos.length === 0) return null;
+  const fav = photos.find(p => p.favorite);
+  if (fav) return fav;
+  const scored = photos
+    .filter(p => p.styleCheck && typeof p.styleCheck.score === 'number')
+    .sort((a, b) => b.styleCheck.score - a.styleCheck.score);
+  if (scored.length > 0) return scored[0];
+  // 첫 촬영 = 가장 오래된 것
+  return photos.slice().sort((a, b) => a.timestamp - b.timestamp)[0];
+}
+
+function photosByDateKey(photos) {
+  // YYYY-MM-DD key → photos[]
+  const map = new Map();
+  for (const p of photos) {
+    const d = new Date(p.timestamp);
+    const key = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(p);
+  }
+  return map;
+}
+
+function renderCalendar(photos) {
+  // 현재 보고 있는 연·월 초기화 (아직 없으면 가장 최근 사진의 달)
+  if (!calYear || !calMonth && calMonth !== 0) {
+    const latest = photos.reduce((a, b) => (a.timestamp > b.timestamp ? a : b));
+    const d = new Date(latest.timestamp);
+    calYear = d.getFullYear();
+    calMonth = d.getMonth();
+  }
+
+  const byDate = photosByDateKey(photos);
+
+  // 월 탐색 가능 범위 계산 (실제 사진이 있는 범위 안에서만 이동)
+  const allDates = photos.map(p => new Date(p.timestamp));
+  const minD = allDates.reduce((a, b) => (a < b ? a : b));
+  const maxD = allDates.reduce((a, b) => (a > b ? a : b));
+
+  // 월 헤더
+  const header = document.createElement('div');
+  header.className = 'calHeader';
+  const prevBtn = document.createElement('button');
+  prevBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 6 9 12 15 18"/></svg>';
+  const nextBtn = document.createElement('button');
+  nextBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>';
+  const monthLabel = document.createElement('span');
+  monthLabel.textContent = calYear + '년 ' + (calMonth + 1) + '월';
+
+  prevBtn.disabled = (calYear < minD.getFullYear()) ||
+    (calYear === minD.getFullYear() && calMonth <= minD.getMonth());
+  nextBtn.disabled = (calYear > maxD.getFullYear()) ||
+    (calYear === maxD.getFullYear() && calMonth >= maxD.getMonth());
+
+  prevBtn.addEventListener('click', () => {
+    calMonth--;
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    renderGallery();
+  });
+  nextBtn.addEventListener('click', () => {
+    calMonth++;
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderGallery();
+  });
+
+  header.appendChild(prevBtn);
+  header.appendChild(monthLabel);
+  header.appendChild(nextBtn);
+  calendarBody.appendChild(header);
+
+  // 요일 헤더
+  const weekdays = document.createElement('div');
+  weekdays.className = 'calWeekdays';
+  ['일', '월', '화', '수', '목', '금', '토'].forEach(d => {
+    const s = document.createElement('span');
+    s.textContent = d;
+    weekdays.appendChild(s);
+  });
+  calendarBody.appendChild(weekdays);
+
+  // 달력 그리드
+  const grid = document.createElement('div');
+  grid.className = 'calGrid';
+
+  const firstOfMonth = new Date(calYear, calMonth, 1);
+  const startDayOfWeek = firstOfMonth.getDay(); // 0=Sun
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+
+  const today = new Date();
+  const todayKey = today.getFullYear() + '-' +
+    String(today.getMonth() + 1).padStart(2, '0') + '-' +
+    String(today.getDate()).padStart(2, '0');
+
+  // 앞 빈 셀
+  for (let i = 0; i < startDayOfWeek; i++) {
+    const empty = document.createElement('div');
+    empty.className = 'calCell empty';
+    grid.appendChild(empty);
+  }
+
+  // 날짜 셀
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cell = document.createElement('div');
+    cell.className = 'calCell';
+    const dateObj = new Date(calYear, calMonth, day);
+    const dow = dateObj.getDay();
+    if (dow === 0) cell.classList.add('sun');
+    if (dow === 6) cell.classList.add('sat');
+
+    const key = calYear + '-' +
+      String(calMonth + 1).padStart(2, '0') + '-' +
+      String(day).padStart(2, '0');
+    if (key === todayKey) cell.classList.add('today');
+
+    const dayNum = document.createElement('span');
+    dayNum.className = 'calDayNum';
+    dayNum.textContent = day;
+    cell.appendChild(dayNum);
+
+    const dayPhotos = byDate.get(key);
+    if (dayPhotos && dayPhotos.length > 0) {
+      const rep = pickRepresentativePhoto(dayPhotos);
+      if (rep) {
+        const img = document.createElement('img');
+        img.src = getPhotoUrl(rep);
+        cell.appendChild(img);
+      }
+      if (dayPhotos.some(p => p.favorite)) {
+        const heart = document.createElement('span');
+        heart.className = 'calHeart';
+        heart.textContent = '♥';
+        cell.appendChild(heart);
+      }
+      if (dayPhotos.length > 1) {
+        const more = document.createElement('span');
+        more.className = 'calMore';
+        more.textContent = '+' + (dayPhotos.length - 1);
+        cell.appendChild(more);
+      }
+      cell.addEventListener('click', () => openCalDaySheet(dateObj, dayPhotos));
+    }
+    grid.appendChild(cell);
+  }
+
+  calendarBody.appendChild(grid);
+}
+
+function openCalDaySheet(dateObj, dayPhotos) {
+  calDaySheetTitle.textContent = formatDateHeader(dateObj);
+  calDaySheetGrid.innerHTML = '';
+  const sorted = dayPhotos.slice().sort((a, b) => b.timestamp - a.timestamp);
+  for (const photo of sorted) {
+    const div = document.createElement('div');
+    div.className = 'dayThumb';
+    const img = document.createElement('img');
+    img.src = getPhotoUrl(photo);
+    div.appendChild(img);
+    if (photo.favorite) {
+      const heart = document.createElement('div');
+      heart.className = 'calHeart';
+      heart.textContent = '♥';
+      div.appendChild(heart);
+    }
+    div.addEventListener('click', () => {
+      closeCalDaySheet();
+      openPhotoView(photo.id);
+    });
+    calDaySheetGrid.appendChild(div);
+  }
+  calDaySheet.classList.remove('hidden');
+}
+function closeCalDaySheet() {
+  calDaySheet.classList.add('hidden');
+}
+calDaySheetClose.addEventListener('click', closeCalDaySheet);
+calDaySheet.addEventListener('click', (e) => {
+  if (e.target === calDaySheet) closeCalDaySheet();
+});
+
+// 뷰 모드 토글 (리스트 | 달력)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.viewModeBtn');
+  if (!btn) return;
+  const mode = btn.dataset.mode;
+  if (mode === currentViewMode) return;
+  currentViewMode = mode;
+  document.querySelectorAll('.viewModeBtn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === currentViewMode);
+  });
+  // 달력 뷰로 처음 전환 시 연·월 리셋 트리거 (최근 사진 기준)
+  if (mode === 'calendar') { calYear = 0; calMonth = 0; }
+  renderGallery();
+});
 
 // 탭 전환
 document.addEventListener('click', (e) => {

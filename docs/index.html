@@ -95,12 +95,16 @@
       position: fixed;
       left: 0; right: 0;
       bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
-      display: flex;
+      /* 3-column grid로 셔터를 화면 중앙에 고정.
+         좌측 영역에 갤러리 버튼, 우측 1fr은 여백으로 셔터 좌우 균형 유지. */
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      justify-content: center;
-      gap: 24px;
+      padding: 0 32px;
       pointer-events: none;
     }
+    #controls > #galleryBtn { justify-self: center; }
+    #controls > #shutterBtn { justify-self: center; }
 
     .ctrlBtn {
       pointer-events: auto;
@@ -474,6 +478,183 @@
       color: #000;
     }
     .tabBtn:active { opacity: 0.8; }
+
+    /* 뷰 모드 토글 (리스트 | 달력) */
+    #viewModeToggle {
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      padding: 0 16px 8px;
+      flex-shrink: 0;
+    }
+    .viewModeBtn {
+      background: none;
+      border: 0;
+      color: rgba(255,255,255,0.55);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 999px;
+      letter-spacing: 0.3px;
+    }
+    .viewModeBtn.active {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+    }
+    .viewModeBtn:active { opacity: 0.7; }
+
+    /* ---- 캘린더 뷰 ---- */
+    #calendarBody {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 0 10px 24px;
+    }
+    #calendarBody.hidden { display: none !important; }
+    .calHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 8px 14px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .calHeader button {
+      background: rgba(255,255,255,0.08);
+      border: 0;
+      color: #fff;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0;
+    }
+    .calHeader button:active { background: rgba(255,255,255,0.18); }
+    .calHeader button svg { width: 16px; height: 16px; }
+    .calHeader button:disabled { opacity: 0.25; pointer-events: none; }
+
+    .calWeekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      padding: 0 3px 6px;
+      font-size: 11px;
+      text-align: center;
+      opacity: 0.5;
+      letter-spacing: 0.3px;
+    }
+    .calWeekdays span:first-child { color: #ff6961; }
+    .calWeekdays span:last-child  { color: #7cc4ff; }
+
+    .calGrid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      padding: 0 3px;
+    }
+    .calCell {
+      aspect-ratio: 1;
+      position: relative;
+      background: rgba(255,255,255,0.04);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 10px;
+    }
+    .calCell.empty {
+      background: transparent;
+    }
+    .calCell.today {
+      outline: 1.5px solid rgba(255,255,255,0.55);
+      outline-offset: -1.5px;
+    }
+    .calCell .calDayNum {
+      position: absolute;
+      top: 4px; left: 5px;
+      font-weight: 600;
+      color: #fff;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+      z-index: 2;
+    }
+    .calCell.sun .calDayNum { color: #ff6961; }
+    .calCell.sat .calDayNum { color: #7cc4ff; }
+    .calCell img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .calCell .calMore {
+      position: absolute;
+      bottom: 3px; right: 4px;
+      font-size: 9px;
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      padding: 1px 5px;
+      border-radius: 6px;
+      font-weight: 600;
+      z-index: 2;
+    }
+    .calCell .calHeart {
+      position: absolute;
+      top: 3px; right: 4px;
+      color: #ff3b30;
+      font-size: 10px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+      z-index: 2;
+    }
+
+    /* 날짜 셀 탭 시 올라오는 시트 */
+    #calDaySheet {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 320;
+      display: flex; align-items: flex-end; justify-content: center;
+      backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+    #calDaySheet .sheet {
+      width: 100%;
+      max-width: 480px;
+      background: #1c1c1e;
+      border-radius: 18px 18px 0 0;
+      padding: 16px 16px calc(env(safe-area-inset-bottom, 0px) + 18px);
+      max-height: 70vh;
+      display: flex; flex-direction: column;
+    }
+    #calDaySheet .sheetHeader {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+    #calDaySheet .sheetTitle {
+      font-size: 16px; font-weight: 700;
+    }
+    #calDaySheet .sheetClose {
+      background: none; border: 0; color: #fff;
+      font-size: 15px; padding: 6px 8px; opacity: 0.7;
+    }
+    #calDaySheet .dayGrid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #calDaySheet .dayThumb {
+      aspect-ratio: 1;
+      position: relative;
+      background: #222;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #calDaySheet .dayThumb img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    #calDaySheet .dayThumb .calHeart {
+      position: absolute;
+      top: 4px; right: 4px;
+      color: #ff3b30;
+      font-size: 12px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+    }
 
     /* 갤러리 본문 (날짜 그룹 단위) */
     #galleryBody {
@@ -1110,8 +1291,24 @@
       <button class="tabBtn active" data-tab="environment">OOTD</button>
       <button class="tabBtn" data-tab="user">MyFace</button>
     </div>
+    <div id="viewModeToggle">
+      <button class="viewModeBtn active" data-mode="list">리스트</button>
+      <button class="viewModeBtn" data-mode="calendar">달력</button>
+    </div>
     <div id="galleryBody"></div>
+    <div id="calendarBody" class="hidden"></div>
     <div id="galleryEmpty" class="hidden"></div>
+  </div>
+
+  <!-- 캘린더 날짜 셀 탭 시 올라오는 시트 -->
+  <div id="calDaySheet" class="hidden">
+    <div class="sheet">
+      <div class="sheetHeader">
+        <span class="sheetTitle" id="calDaySheetTitle"></span>
+        <button class="sheetClose" id="calDaySheetClose">완료</button>
+      </div>
+      <div class="dayGrid" id="calDaySheetGrid"></div>
+    </div>
   </div>
 
   <!-- 사진 상세 (v3.2 풀화면) -->
