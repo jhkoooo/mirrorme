@@ -646,11 +646,17 @@ function openDB() {
   });
 }
 
+// 현재 사용자 식별자. 지금은 본인 단독 사용이므로 'local' 하드코딩.
+// 배포 시점에 로그인 도입하면 이 값만 실제 사용자 UID로 교체하면 기존 사진들도
+// 소유자 매핑이 가능해짐(Firebase 등으로 마이그레이션 대비).
+const CURRENT_USER_ID = 'local';
+
 async function savePhoto(blob, facing) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).add({
+      userId: CURRENT_USER_ID,
       blob,
       timestamp: Date.now(),
       facing: facing || 'user',
@@ -741,6 +747,8 @@ function revokePhotoUrl(id) {
 // 옛 사진 마이그레이션 헬퍼: 누락 필드 채우기 (메모리 객체에만 적용)
 function normalizePhoto(p) {
   if (!p) return p;
+  // userId 필드가 없는 옛 사진은 로컬 사용자로 간주 (마이그레이션 안전성)
+  if (!p.userId) p.userId = CURRENT_USER_ID;
   if (!p.facing) p.facing = 'user';
   if (typeof p.memo !== 'string') p.memo = '';
   if (!p.tags || typeof p.tags !== 'object') {
