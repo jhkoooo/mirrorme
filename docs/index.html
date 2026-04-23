@@ -323,6 +323,42 @@
     }
     #settings .keyStatus.ok { color: #32d74b; }
 
+    /* 마일스톤 배지 */
+    .milestoneBadges {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .mBadge {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      font-size: 13px;
+    }
+    .mBadge.unlocked {
+      background: rgba(255,255,255,0.10);
+      border-color: rgba(255,255,255,0.15);
+    }
+    .mBadge.locked { opacity: 0.45; }
+    .mBadgeIcon {
+      font-size: 18px;
+      width: 24px; text-align: center;
+    }
+    .mBadge.locked .mBadgeIcon { filter: grayscale(1); }
+    .mBadgeText {
+      flex: 1;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .mBadgeTitle { font-weight: 600; }
+    .mBadgeDesc { font-size: 11px; opacity: 0.6; }
+    .mBadgeMark {
+      font-size: 11px;
+      opacity: 0.6;
+    }
+    .mBadge.unlocked .mBadgeMark { color: #32d74b; opacity: 1; }
+
     /* 톤 선택 칩 */
     .toneChips {
       display: flex;
@@ -919,6 +955,33 @@
     .styleCheckBalance span b {
       font-weight: 600;
     }
+
+    /* 바이브 배지 — 카드 상단 강조 */
+    .styleCheckVibe {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(124,196,255,0.25), rgba(255,159,10,0.18));
+      border: 1px solid rgba(255,255,255,0.18);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      color: #fff;
+      margin-bottom: 2px;
+    }
+
+    /* 색상/실루엣 밸런스를 컬러 점으로 시각화 */
+    .balDot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+    .balDot.lv-상 { background: #32d74b; }   /* 초록 */
+    .balDot.lv-중 { background: #ffd479; }   /* 노랑 */
+    .balDot.lv-하 { background: #ff6961; }   /* 빨강 */
     .styleCheckBody {
       font-size: 13px;
       line-height: 1.5;
@@ -1164,7 +1227,7 @@
         </svg>
       </div>
       <h1>MyStyle</h1>
-      <p class="homeTagline">오늘의 나를 기록하세요</p>
+      <p class="homeTagline">거울보다 정확한, 매일의 기록</p>
     </div>
 
     <div class="homeCards">
@@ -1252,6 +1315,12 @@
           <button class="btnGhost" id="geminiKeyClear">삭제</button>
           <button class="btnPrimary" id="geminiKeySave">저장</button>
         </div>
+      </div>
+
+      <div class="settingGroup">
+        <label>기록 배지</label>
+        <div id="milestoneBadges" class="milestoneBadges"></div>
+        <div class="settingHint">꾸준히 기록할수록 배지가 해금됩니다. 알림·공유 없이 조용히.</div>
       </div>
 
       <div class="settingGroup">

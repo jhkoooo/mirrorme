@@ -73,6 +73,7 @@ const geminiKeySave      = document.getElementById('geminiKeySave');
 const geminiKeyClear     = document.getElementById('geminiKeyClear');
 const keyStatus          = document.getElementById('keyStatus');
 const toneChipsEl        = document.getElementById('toneChips');
+const milestoneBadgesEl  = document.getElementById('milestoneBadges');
 
 // 맥락 입력 시트
 const contextSheet       = document.getElementById('contextSheet');
@@ -1729,7 +1730,80 @@ function refreshKeyStatus() {
 function openSettings() {
   refreshKeyStatus();
   refreshToneChips();
+  renderMilestoneBadges();
   settings.classList.remove('hidden');
+}
+
+// ─── 마일스톤 배지 ────────────────────────────────────
+// 조용한 기록 배지. 알림·공유·수집 없음. 설정 안에서만 확인.
+const MILESTONE_DEFS = [
+  { id: 'first',      icon: '🌱', title: '첫 OOTD',      desc: '처음 OOTD 사진 기록' },
+  { id: 'streak7',    icon: '📅', title: '7일 연속',     desc: '일주일 내내 기록' },
+  { id: 'streak30',   icon: '🔥', title: '30일 연속',    desc: '한 달 내내 기록' },
+  { id: 'count100',   icon: '💯', title: '100장 돌파',   desc: '누적 OOTD 100장' },
+  { id: 'vibe5',      icon: '🎨', title: '바이브 5종',   desc: '서로 다른 바이브 5개 수집' },
+];
+
+async function computeMilestones() {
+  const all = (await getAllPhotos()).map(normalizePhoto);
+  const ootd = all.filter(p => p.facing === 'environment');
+
+  // 첫 OOTD / 총 장수
+  const total = ootd.length;
+  const unlocked = new Set();
+  if (total >= 1)   unlocked.add('first');
+  if (total >= 100) unlocked.add('count100');
+
+  // 연속 기록 (날짜 기준)
+  const dateSet = new Set();
+  for (const p of ootd) {
+    const d = new Date(p.timestamp);
+    dateSet.add(d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate());
+  }
+  // 오늘부터 거꾸로 연속 일수 카운트
+  let streak = 0;
+  const cursor = new Date();
+  for (let i = 0; i < 366; i++) {
+    const key = cursor.getFullYear() + '-' + (cursor.getMonth()+1) + '-' + cursor.getDate();
+    if (dateSet.has(key)) streak++;
+    else if (i > 0) break;      // 오늘 기록 없으면 어제부터 시작, 끊기면 종료
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  if (streak >= 7)  unlocked.add('streak7');
+  if (streak >= 30) unlocked.add('streak30');
+
+  // 바이브 5종
+  const vibes = new Set();
+  for (const p of ootd) {
+    const v = p.styleCheck && p.styleCheck.vibe;
+    if (v && v.trim()) vibes.add(v.trim());
+  }
+  if (vibes.size >= 5) unlocked.add('vibe5');
+
+  return unlocked;
+}
+
+async function renderMilestoneBadges() {
+  try {
+    const unlocked = await computeMilestones();
+    milestoneBadgesEl.innerHTML = '';
+    for (const def of MILESTONE_DEFS) {
+      const row = document.createElement('div');
+      row.className = 'mBadge ' + (unlocked.has(def.id) ? 'unlocked' : 'locked');
+      row.innerHTML =
+        '<div class="mBadgeIcon">' + def.icon + '</div>' +
+        '<div class="mBadgeText">' +
+          '<div class="mBadgeTitle"></div>' +
+          '<div class="mBadgeDesc"></div>' +
+        '</div>' +
+        '<div class="mBadgeMark">' + (unlocked.has(def.id) ? '✓' : '🔒') + '</div>';
+      row.querySelector('.mBadgeTitle').textContent = def.title;
+      row.querySelector('.mBadgeDesc').textContent = def.desc;
+      milestoneBadgesEl.appendChild(row);
+    }
+  } catch (e) {
+    console.error('[MyStyle] 배지 렌더 실패:', e);
+  }
 }
 function closeSettings() {
   settings.classList.add('hidden');
@@ -1800,6 +1874,7 @@ function buildStyleCheckPrompt(tone, context) {
     '',
     '[필드 가이드]',
     '- score: 1~10. 10=훌륭, 7~8=좋음, 5~6=무난, 3~4=아쉬움, 1~2=재구성 필요.',
+    '- vibe: 이 OOTD를 한두 단어로 요약하는 짧은 바이브 태그. 예: "미니멀 클래식", "페미닌 로맨틱", "스트릿 캐주얼", "비즈니스 캐주얼", "아방가르드", "스포티". 최대 2어절(8자 내외). 사용자가 자신의 스타일 아이덴티티를 직관적으로 파악하기 위한 것이므로 반드시 채울 것.',
     '- colorBalance / silhouetteBalance: "상"=조화롭고 포인트 명확, "중"=무난, "하"=부조화·어색.',
     '- comment: 40자 이내 종합 한 줄 평. 구체적·관찰 기반.',
     '- suggestion: 40자 이내 개선 제안 1가지. "모든 게 완벽"이면 빈 문자열.',
@@ -1808,6 +1883,7 @@ function buildStyleCheckPrompt(tone, context) {
     '[예시 응답 — 이 형식과 채워진 정도를 반드시 따를 것]',
     '{',
     '  "score": 7,',
+    '  "vibe": "미니멀 클래식",',
     '  "colorBalance": "상",',
     '  "silhouetteBalance": "중",',
     '  "comment": "무채색 톤의 클래식한 캐주얼 조합",',
@@ -1920,6 +1996,7 @@ async function callGeminiVision(apiKey, blob, context, tone) {
     type: 'object',
     properties: {
       score:             { type: 'integer' },
+      vibe:              { type: 'string' },
       colorBalance:      { type: 'string' },
       silhouetteBalance: { type: 'string' },
       comment:           { type: 'string' },
@@ -1950,7 +2027,7 @@ async function callGeminiVision(apiKey, blob, context, tone) {
         },
       },
     },
-    required: ['score', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'contextFit', 'tags', 'brandGuess'],
+    required: ['score', 'vibe', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'contextFit', 'tags', 'brandGuess'],
   };
   const prompt = buildStyleCheckPrompt(tone || 'balanced', context || '');
   const body = {
@@ -2021,6 +2098,7 @@ function parseStyleCheckJson(text) {
 
   return {
     score,
+    vibe:              String(obj.vibe || '').slice(0, 24),
     colorBalance:      pickBal(obj.colorBalance),
     silhouetteBalance: pickBal(obj.silhouetteBalance),
     comment:           String(obj.comment || '').slice(0, 120),
@@ -2086,6 +2164,7 @@ async function runStyleCheck(contextStr) {
     currentViewingPhoto.tags = merged;
     currentViewingPhoto.styleCheck = {
       score: result.score,
+      vibe: result.vibe,
       colorBalance: result.colorBalance,
       silhouetteBalance: result.silhouetteBalance,
       comment: result.comment,
@@ -2196,11 +2275,12 @@ function renderStyleCheckCard(opts) {
   }
 
   styleCheckCard.innerHTML =
+    (sc.vibe ? '<div class="styleCheckVibe"></div>' : '') +
     '<div class="styleCheckHeader">' +
       '<div class="styleCheckScore">' + sc.score + '<span class="max">/10</span></div>' +
       '<div class="styleCheckBalance">' +
-        '<span>색상 <b>' + sc.colorBalance + '</b></span>' +
-        '<span>실루엣 <b>' + sc.silhouetteBalance + '</b></span>' +
+        '<span>색상 <b>' + sc.colorBalance + '</b><span class="balDot lv-' + sc.colorBalance + '"></span></span>' +
+        '<span>실루엣 <b>' + sc.silhouetteBalance + '</b><span class="balDot lv-' + sc.silhouetteBalance + '"></span></span>' +
       '</div>' +
     '</div>' +
     (sc.context ? '<div class="styleCheckContext"></div>' : '') +
@@ -2216,6 +2296,9 @@ function renderStyleCheckCard(opts) {
     '</div>';
 
   // 텍스트는 innerHTML 대신 textContent로 주입 (XSS 안전)
+  if (sc.vibe) {
+    styleCheckCard.querySelector('.styleCheckVibe').textContent = sc.vibe;
+  }
   if (sc.context) {
     styleCheckCard.querySelector('.styleCheckContext').textContent = '맥락: ' + sc.context;
   }
