@@ -109,10 +109,10 @@ let toastTimer = null;
 // 스타일 검사 관련
 const GEMINI_KEY_STORAGE  = 'mystyle_gemini_api_key';
 const TONE_STORAGE        = 'mystyle_ai_tone';                 // 'friendly' | 'balanced' | 'expert'
-// gemini-2.0-flash: 무료 일일 한도 약 1500 RPD, Vision 지원, 응답이 풍부.
-// 2.5-flash(250 RPD)는 테스트 반복 시 빠르게 소진. Flash Lite(1000 RPD)는 응답을
-// 과도하게 축약해 tags 누락 경향이 있어 2.0-flash가 균형점.
-const GEMINI_MODEL = 'gemini-2.0-flash';
+// gemini-2.5-flash: Google이 2.0-flash를 신규 사용자에게 제공 중단(2026-04).
+// 결제 활성화 상태이므로 무료 티어 RPD 제약(250) 영향 거의 없음.
+// Vision 지원, tags·brandGuess 풍부히 채움.
+const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
 let styleCheckInFlight = false;
 

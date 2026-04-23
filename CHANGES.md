@@ -83,6 +83,11 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 47. v3.7.9 — Gemini 2.0 Flash 신규 차단 → 2.5-flash 전환
+**프롬프트**: "분석실패 : API 404 : This model models/gemini-2.0-flash is no longer available to new users."
+**수정 파일**: `docs/app.js`
+**내용**: Google이 2026년 4월경 `gemini-2.0-flash`를 신규 사용자 대상으로 제공 중단. 기존 사용자는 당분간 사용 가능하지만 **신규 결제 계정으로는 404 에러**. `gemini-2.5-flash`로 교체. 결제 활성화 완료된 상태라 무료 티어 RPD 낮음(250) 제약은 실질적 영향 없음. Vision·tags·brandGuess 모두 정상 지원.
+
 ### 46. v3.7.8 — 피규어 오감지 차단 + 쿼터 billing 케이스 구체 안내
 **프롬프트**: "쿼터초과 - you exceeded your current quota, please check your plan and billing details. / 첨부한 이미지는 대체 어떻게 찍히는거지? 사람이 아닌데 왜 인식해?"
 **수정 파일**: `docs/app.js`
