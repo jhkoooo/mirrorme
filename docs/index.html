@@ -1212,20 +1212,41 @@
     }
     #photoFav.active { color: #ff3b30; }
 
-    /* 사진 주체(본인/다른 사람) 토글 — 본인=흰 아이콘, 다른 사람=주황 + 작은 점 */
-    #photoSubject {
-      position: relative;
-      color: rgba(255,255,255,0.85);
-      transition: color 150ms ease;
+    /* 사진 주체(본인/다른 사람) 토글 — 하단 info 패널 상단에 배치 */
+    #photoSubjectToggle {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
     }
-    #photoSubject.other { color: #ff9f40; }
-    #photoSubject.other::after {
-      content: '';
-      position: absolute; right: 4px; bottom: 4px;
-      width: 7px; height: 7px;
-      border-radius: 50%;
+    .subjectChip {
+      padding: 6px 14px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      color: rgba(255,255,255,0.7);
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }
+    .subjectChip.active {
+      background: rgba(255,255,255,0.95);
+      border-color: rgba(255,255,255,0.95);
+      color: #000;
+      font-weight: 600;
+    }
+    .subjectChip[data-subject="other"].active {
       background: #ff9f40;
-      border: 1.5px solid #000;
+      border-color: #ff9f40;
+      color: #000;
+    }
+    .subjectHint {
+      flex-basis: 100%;
+      font-size: 11px;
+      opacity: 0.55;
+      letter-spacing: 0.2px;
+      margin-top: 2px;
     }
 
     /* 하단 info 패널 (OOTD만, 탭 토글) */
@@ -1808,12 +1829,6 @@
       </button>
       <div id="photoViewDate"></div>
       <div id="photoTopActions">
-        <button id="photoSubject" class="iconBtn hidden" aria-label="사진 주체 전환">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="9" r="3.4"/>
-            <path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6"/>
-          </svg>
-        </button>
         <button id="photoFav" class="iconBtn" aria-label="즐겨찾기">♥</button>
         <button id="photoStyleCheckBtn" class="iconBtn hidden" aria-label="스타일 검사">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1845,6 +1860,13 @@
     <div id="photoViewInfo">
       <!-- 스타일 검사 결과 카드 (분석 후 표시) -->
       <div id="styleCheckCard" class="hidden"></div>
+
+      <!-- 사진 주체 토글 (본인 | 다른 사람). 다른 사람이면 트렌드 리포트에서 제외 -->
+      <div id="photoSubjectToggle">
+        <button class="subjectChip active" data-subject="me">본인</button>
+        <button class="subjectChip" data-subject="other">다른 사람</button>
+        <div class="subjectHint hidden" id="photoSubjectHint">리포트 집계에서 제외됩니다</div>
+      </div>
 
       <input id="photoMemoInput" type="text" placeholder="오늘의 코디 메모" maxlength="80" />
       <div id="photoTagsArea"></div>

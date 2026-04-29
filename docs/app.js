@@ -48,8 +48,10 @@ const photoViewDate   = document.getElementById('photoViewDate');
 const photoBack       = document.getElementById('photoBack');
 const photoDelete     = document.getElementById('photoDelete');
 const photoDownload   = document.getElementById('photoDownload');
-const photoFav        = document.getElementById('photoFav');
-const photoSubject    = document.getElementById('photoSubject');
+const photoFav            = document.getElementById('photoFav');
+const photoSubjectToggle  = document.getElementById('photoSubjectToggle');
+const photoSubjectChips   = photoSubjectToggle ? photoSubjectToggle.querySelectorAll('.subjectChip') : [];
+const photoSubjectHint    = document.getElementById('photoSubjectHint');
 const photoMemoInput  = document.getElementById('photoMemoInput');
 const photoTagsArea   = document.getElementById('photoTagsArea');
 const addCategoryBtn  = document.getElementById('addCategoryBtn');
@@ -1261,11 +1263,13 @@ function renderCurrentSlide() {
   addCategoryBtn.classList.toggle('hidden', isFace);
   // 스타일 검사 버튼은 OOTD에만 노출
   photoStyleCheckBtn.classList.toggle('hidden', isFace);
-  // 주체 토글(본인/다른 사람)도 OOTD에만 노출
-  photoSubject.classList.toggle('hidden', isFace);
-  photoSubject.classList.toggle('other', curr.subject === 'other');
-  photoSubject.setAttribute('aria-label',
-    curr.subject === 'other' ? '다른 사람으로 표시됨' : '본인으로 표시됨');
+  // 주체 토글(본인/다른 사람) — info 패널 안에 있으니 isFace일 땐 패널 자체가 hidden되어 자동 안 보임.
+  // 활성 칩만 갱신.
+  const subj = curr.subject || 'me';
+  photoSubjectChips.forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.subject === subj);
+  });
+  photoSubjectHint.classList.toggle('hidden', subj !== 'other');
   renderStyleCheckCard();
 
   // 바 가시성 상태 재적용 (MyFace면 info는 hidden이라 hidden-soft 안 붙임)
@@ -1597,17 +1601,22 @@ photoFav.addEventListener('click', () => {
   queueUpdate(currentViewingPhoto);
 });
 
-// 사진 주체(본인/다른 사람) 토글 — OOTD 전용. 트렌드 리포트 집계는 'me'만 들어감.
-photoSubject.addEventListener('click', () => {
-  if (!currentViewingPhoto) return;
-  const next = currentViewingPhoto.subject === 'other' ? 'me' : 'other';
-  currentViewingPhoto.subject = next;
-  photoSubject.classList.toggle('other', next === 'other');
-  photoSubject.setAttribute('aria-label',
-    next === 'other' ? '다른 사람으로 표시됨' : '본인으로 표시됨');
-  queueUpdate(currentViewingPhoto);
-  toast(next === 'other' ? '다른 사람 사진으로 표시 (리포트에서 제외)' : '본인 사진으로 표시', 2500);
-});
+// 사진 주체(본인/다른 사람) 칩 토글 — OOTD 전용. 트렌드 리포트 집계는 'me'만 들어감.
+// 칩 두 개를 위임 처리 — 클릭한 칩의 data-subject로 결정.
+if (photoSubjectToggle) {
+  photoSubjectToggle.addEventListener('click', (e) => {
+    const chip = e.target.closest('.subjectChip');
+    if (!chip || !currentViewingPhoto) return;
+    const next = chip.dataset.subject === 'other' ? 'other' : 'me';
+    if (currentViewingPhoto.subject === next) return; // 이미 같은 상태면 무동작
+    currentViewingPhoto.subject = next;
+    photoSubjectChips.forEach(c => {
+      c.classList.toggle('active', c.dataset.subject === next);
+    });
+    photoSubjectHint.classList.toggle('hidden', next !== 'other');
+    queueUpdate(currentViewingPhoto);
+  });
+}
 
 // ============================================================
 //  카테고리 태그 (칩)
