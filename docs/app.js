@@ -177,11 +177,36 @@ const CATEGORY_LABELS = {
 // ============================================================
 //  토스트
 // ============================================================
-function toast(msg, duration = 2400) {
+// 일반 토스트는 read-only. opts.onTap을 주면 클릭 가능 토스트로 동작 (스타일 + 핸들러).
+function toast(msg, duration = 2400, opts) {
   toastEl.textContent = msg;
   toastEl.classList.add('visible');
+  // 이전 클릭 핸들러 정리
+  toastEl.onclick = null;
+  if (opts && typeof opts.onTap === 'function') {
+    toastEl.classList.add('clickable');
+    toastEl.style.pointerEvents = 'auto';
+    const cb = opts.onTap;
+    toastEl.onclick = () => {
+      try { cb(); }
+      finally {
+        toastEl.classList.remove('visible');
+        toastEl.classList.remove('clickable');
+        toastEl.style.pointerEvents = '';
+        toastEl.onclick = null;
+      }
+    };
+  } else {
+    toastEl.classList.remove('clickable');
+    toastEl.style.pointerEvents = '';
+  }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('visible'), duration);
+  toastTimer = setTimeout(() => {
+    toastEl.classList.remove('visible');
+    toastEl.classList.remove('clickable');
+    toastEl.style.pointerEvents = '';
+    toastEl.onclick = null;
+  }, duration);
 }
 
 // ============================================================
@@ -3025,10 +3050,22 @@ async function runStyleCheck(contextStr) {
       renderTags();
       toast('분석 완료');
     } else {
-      // 사용자가 다른 사진으로 이동함 — 정확한 사진에 결과만 저장하고 알림
+      // 사용자가 다른 사진으로 이동함 — 정확한 사진에 결과만 저장하고 알림.
+      // 같은 날 여러 장 동시 분석 시 구분되도록 시간 포함, 탭하면 그 사진으로 점프.
       const d = new Date(target.timestamp);
       const dateStr = (d.getMonth() + 1) + '/' + d.getDate();
-      toast(dateStr + ' 사진 분석 완료', 4500);
+      const timeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      toast(dateStr + ' ' + timeStr + ' 사진 분석 완료  ›', 5000, {
+        onTap: () => {
+          // photoView 안에서만 jump 동작 — 다른 화면(홈/리포트)에선 토스트 자동 닫힘만
+          if (!photoView || photoView.classList.contains('hidden')) return;
+          const idx = photoViewList.findIndex(p => p && p.id === target.id);
+          if (idx >= 0) {
+            photoViewIndex = idx;
+            renderCurrentSlide();
+          }
+        },
+      });
     }
   } catch (err) {
     console.error('[MyStyle] 스타일 검사 실패:', err, '| diag:', __diag);
