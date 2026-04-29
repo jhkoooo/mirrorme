@@ -49,6 +49,7 @@ const photoBack       = document.getElementById('photoBack');
 const photoDelete     = document.getElementById('photoDelete');
 const photoDownload   = document.getElementById('photoDownload');
 const photoFav        = document.getElementById('photoFav');
+const photoSubject    = document.getElementById('photoSubject');
 const photoMemoInput  = document.getElementById('photoMemoInput');
 const photoTagsArea   = document.getElementById('photoTagsArea');
 const addCategoryBtn  = document.getElementById('addCategoryBtn');
@@ -146,7 +147,11 @@ const TONE_STORAGE        = 'mystyle_ai_tone';                 // 'friendly' | '
 // Vision 지원, tags·brandGuess 풍부히 채움.
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
-let styleCheckInFlight = false;
+
+// 진행 중인 검사를 photoId 단위로 추적. 슬라이드로 사진을 바꿔도 각 사진의 검사 상태가
+// 독립적으로 유지된다. v3.10까지 쓰던 styleCheckInFlight 전역 락은 race condition을
+// 일으켜서 v3.11에서 Map으로 교체. value: { retry: {n, total} | null }
+const pendingStyleChecks = new Map();
 
 // 맥락 입력 상태 (시트에서 임시 보관, 제출 시 분석 호출에 전달)
 let selectedContextChip = '';   // '데일리' 등 (칩으로 선택)
@@ -783,6 +788,8 @@ function normalizePhoto(p) {
   if (typeof p.favorite !== 'boolean') p.favorite = false;
   if (p.styleCheck && typeof p.styleCheck !== 'object') p.styleCheck = null;
   if (typeof p.styleCheck === 'undefined') p.styleCheck = null;
+  // 사진 주체: 'me'(본인) | 'other'(다른 사람). 옛 사진은 본인으로 마이그레이션.
+  if (p.subject !== 'me' && p.subject !== 'other') p.subject = 'me';
   return p;
 }
 
@@ -907,6 +914,8 @@ async function renderGallery() {
       const img = document.createElement('img');
       img.src = getPhotoUrl(photo);
       img.alt = formatDate(photo.timestamp);
+      // 손상된/로드 실패 사진 fallback — 옛 사진 일부에서 발생하는 ?엑박 방지
+      img.onerror = () => { div.classList.add('broken'); };
       div.appendChild(img);
       if (photo.favorite) {
         const heart = document.createElement('div');
@@ -1070,6 +1079,7 @@ function renderCalendar(photos) {
       if (rep) {
         const img = document.createElement('img');
         img.src = getPhotoUrl(rep);
+        img.onerror = () => { cell.classList.add('broken'); };
         cell.appendChild(img);
       }
       if (dayPhotos.some(p => p.favorite)) {
@@ -1101,6 +1111,7 @@ function openCalDaySheet(dateObj, dayPhotos) {
     div.className = 'dayThumb';
     const img = document.createElement('img');
     img.src = getPhotoUrl(photo);
+    img.onerror = () => { div.classList.add('broken'); };
     div.appendChild(img);
     if (photo.favorite) {
       const heart = document.createElement('div');
@@ -1250,6 +1261,11 @@ function renderCurrentSlide() {
   addCategoryBtn.classList.toggle('hidden', isFace);
   // 스타일 검사 버튼은 OOTD에만 노출
   photoStyleCheckBtn.classList.toggle('hidden', isFace);
+  // 주체 토글(본인/다른 사람)도 OOTD에만 노출
+  photoSubject.classList.toggle('hidden', isFace);
+  photoSubject.classList.toggle('other', curr.subject === 'other');
+  photoSubject.setAttribute('aria-label',
+    curr.subject === 'other' ? '다른 사람으로 표시됨' : '본인으로 표시됨');
   renderStyleCheckCard();
 
   // 바 가시성 상태 재적용 (MyFace면 info는 hidden이라 hidden-soft 안 붙임)
@@ -1581,6 +1597,18 @@ photoFav.addEventListener('click', () => {
   queueUpdate(currentViewingPhoto);
 });
 
+// 사진 주체(본인/다른 사람) 토글 — OOTD 전용. 트렌드 리포트 집계는 'me'만 들어감.
+photoSubject.addEventListener('click', () => {
+  if (!currentViewingPhoto) return;
+  const next = currentViewingPhoto.subject === 'other' ? 'me' : 'other';
+  currentViewingPhoto.subject = next;
+  photoSubject.classList.toggle('other', next === 'other');
+  photoSubject.setAttribute('aria-label',
+    next === 'other' ? '다른 사람으로 표시됨' : '본인으로 표시됨');
+  queueUpdate(currentViewingPhoto);
+  toast(next === 'other' ? '다른 사람 사진으로 표시 (리포트에서 제외)' : '본인 사진으로 표시', 2500);
+});
+
 // ============================================================
 //  카테고리 태그 (칩)
 // ============================================================
@@ -1776,7 +1804,8 @@ const MILESTONE_DEFS = [
 
 async function computeMilestones() {
   const all = (await getAllPhotos()).map(normalizePhoto);
-  const ootd = all.filter(p => p.facing === 'environment');
+  // 배지도 트렌드와 같은 기준 — 본인 OOTD만 카운트
+  const ootd = all.filter(p => p.facing === 'environment' && p.subject === 'me');
 
   // 첫 OOTD / 총 장수
   const total = ootd.length;
@@ -1876,10 +1905,12 @@ function detectColorsInText(text) {
   return hits;
 }
 
-// 전체 사진에서 개인 트렌드 집계. OOTD(후면 촬영)만 대상.
+// 전체 사진에서 개인 트렌드 집계. OOTD(후면 촬영) + 본인(subject='me')만 대상.
+// 다른 사람(subject='other')으로 마킹된 사진은 검사 결과·태그는 그대로 보존하지만
+// 본인 리포트 집계에서는 제외한다. 옛 사진은 normalizePhoto에서 자동으로 'me'로 채워짐.
 async function computeTrends() {
   const all = (await getAllPhotos()).map(normalizePhoto);
-  const ootd = all.filter(p => p.facing === 'environment');
+  const ootd = all.filter(p => p.facing === 'environment' && p.subject === 'me');
 
   const now = new Date();
   const thisY = now.getFullYear();
@@ -2670,7 +2701,10 @@ async function callGeminiVisionWithRetry(apiKey, blob, context, tone, onRetry) {
         msg.indexOf('502') >= 0 ||
         msg.indexOf('overload') >= 0 ||
         msg.indexOf('UNAVAILABLE') >= 0 ||
-        msg.indexOf('응답 파싱 실패') >= 0;  // Gemini가 간헐적으로 JSON 깨뜨리는 케이스도 자동 재시도
+        msg.indexOf('응답 파싱 실패') >= 0 ||  // Gemini가 간헐적으로 JSON 깨뜨리는 케이스도 자동 재시도
+        msg.indexOf('object can not be found') >= 0 ||  // 재검사 시 간헐적으로 발생하는 schema 처리 에러
+        msg.indexOf('INTERNAL') >= 0 ||
+        msg.indexOf('500') >= 0;
       if (!isRetryable) throw err;
       if (attempt === DELAYS.length) throw err;
       if (typeof onRetry === 'function') onRetry(attempt + 1, DELAYS.length);
@@ -2811,8 +2845,8 @@ function parseStyleCheckJson(text) {
 
 // ✨ 버튼 → 맥락 입력 시트 먼저 오픈 (context는 시트에서 받음)
 function beginStyleCheck() {
-  if (styleCheckInFlight) return;
   if (!currentViewingPhoto) return;
+  if (pendingStyleChecks.has(currentViewingPhoto.id)) return; // 이 사진 이미 검사 중
   if (currentViewingPhoto.facing !== 'environment') {
     toast('OOTD 사진만 분석할 수 있어요');
     return;
@@ -2826,38 +2860,60 @@ function beginStyleCheck() {
   openContextSheet();
 }
 
-// 시트에서 "분석 시작" 누르면 실제 API 호출
+// 시트에서 "분석 시작" 누르면 실제 API 호출.
+// race 안전: 시작 시점에 photoId를 캡처해두고, 결과 도착 시점에 그 사진(target)에 직접 저장한다.
+// 도중에 다른 사진으로 스와이프해도 결과는 정확한 사진에 들어가고, UI는 현재 보이는 사진과
+// 일치하는 경우에만 갱신한다.
 async function runStyleCheck(contextStr) {
-  if (styleCheckInFlight) return;
   if (!currentViewingPhoto) return;
+  const startedPhotoId = currentViewingPhoto.id;
+  if (pendingStyleChecks.has(startedPhotoId)) return; // 같은 사진 동시 검사 방지
   const key = getGeminiKey();
   if (!key) return;
 
-  styleCheckInFlight = true;
-  renderStyleCheckCard({ loading: true });
+  pendingStyleChecks.set(startedPhotoId, { retry: null });
+  // 시작 시점에 보고 있는 사진이면 로딩 표시
+  if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
+    renderStyleCheckCard();
+  }
 
   try {
     // iOS Safari는 오래된 blob 참조가 분리(detach)되면 접근 불가. 매 분석마다
     // IndexedDB에서 최신 blob을 다시 읽어와 안전하게 사용.
-    const fresh = await getPhoto(currentViewingPhoto.id);
+    const fresh = await getPhoto(startedPhotoId);
     if (!fresh || !fresh.blob) throw new Error('사진을 다시 불러올 수 없습니다');
     // 전송용 이미지 768px로 축소 (토큰·처리 부담 감소로 503 빈도↓, 비용↓)
     const blobForApi = await downscaleImageBlob(fresh.blob, 768, 0.85);
     const tone = getTone();
     const result = await callGeminiVisionWithRetry(
       key, blobForApi, contextStr, tone,
-      (n, total) => renderStyleCheckCard({ loading: true, retry: { n, total } })
+      (n, total) => {
+        const state = pendingStyleChecks.get(startedPhotoId);
+        if (state) state.retry = { n, total };
+        if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
+          renderStyleCheckCard();
+        }
+      }
     );
 
+    // 결과는 무조건 시작했던 사진(target)에 저장한다 — currentViewingPhoto가 바뀌었어도.
+    // photoViewList에서 같은 객체를 찾아 갱신, 없으면 IndexedDB에서 다시 읽기.
+    let target = (photoViewList && photoViewList.find(p => p && p.id === startedPhotoId)) || null;
+    if (!target) {
+      const fromDb = await getPhoto(startedPhotoId);
+      target = fromDb ? normalizePhoto(fromDb) : null;
+    }
+    if (!target) throw new Error('대상 사진을 찾지 못했습니다');
+
     // AI 태그: 비어 있는 필드에만 반영 (사용자 수동 입력 우선)
-    const existing = currentViewingPhoto.tags || {};
+    const existing = target.tags || {};
     const merged = {};
     for (const k of CATEGORY_KEYS) {
       const userVal = (existing[k] || '').trim();
       merged[k] = userVal || (result.tags[k] || '').trim();
     }
-    currentViewingPhoto.tags = merged;
-    currentViewingPhoto.styleCheck = {
+    target.tags = merged;
+    target.styleCheck = {
       score: result.score,
       vibe: result.vibe,
       colorBalance: result.colorBalance,
@@ -2870,17 +2926,24 @@ async function runStyleCheck(contextStr) {
       brandGuess: result.brandGuess,
       analyzedAt: result.analyzedAt,
     };
+    queueUpdate(target);
 
-    queueUpdate(currentViewingPhoto);
-    renderStyleCheckCard();
-    renderTags();
-    toast('분석 완료');
+    if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
+      // 시작 사진을 그대로 보고 있음 — 결과 카드 렌더 + 태그 갱신
+      renderStyleCheckCard();
+      renderTags();
+      toast('분석 완료');
+    } else {
+      // 사용자가 다른 사진으로 이동함 — 정확한 사진에 결과만 저장하고 알림
+      const d = new Date(target.timestamp);
+      const dateStr = (d.getMonth() + 1) + '/' + d.getDate();
+      toast(dateStr + ' 사진 분석 완료', 4500);
+    }
   } catch (err) {
     console.error('[MyStyle] 스타일 검사 실패:', err);
     const msg = (err && err.message) ? err.message : '알 수 없는 오류';
     // 429(쿼터) / 503(혼잡) 안내 메시지 분기
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
-      // 서버 원문에서 유형 추정
       const isDaily    = /(day|daily|per day|RequestsPerDay|PerDay)/i.test(msg);
       const isMinute   = /(minute|per minute|RPM|PerMinute)/i.test(msg);
       const isBilling  = /(plan and billing|check your plan|billing details|exceeded your current quota)/i.test(msg);
@@ -2904,19 +2967,28 @@ async function runStyleCheck(contextStr) {
     } else {
       toast('분석 실패: ' + msg.slice(0, 140), 5000);
     }
-    renderStyleCheckCard();
+    if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
+      renderStyleCheckCard();
+    }
   } finally {
-    styleCheckInFlight = false;
+    pendingStyleChecks.delete(startedPhotoId);
+    if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
+      renderStyleCheckCard();
+    }
   }
 }
 
-function renderStyleCheckCard(opts) {
-  const loading = !!(opts && opts.loading);
+function renderStyleCheckCard() {
+  // 로딩 상태는 현재 보고 있는 사진이 pendingStyleChecks에 있을 때만 (per-photo).
+  // 이전 v3.10 코드는 styleCheckInFlight 전역 락을 보고 있어서, 검사 중에 다른 사진으로
+  // 스와이프하면 그 사진에도 로딩이 보이는 문제가 있었음.
   if (!currentViewingPhoto || currentViewingPhoto.facing !== 'environment') {
     styleCheckCard.classList.add('hidden');
     styleCheckCard.innerHTML = '';
     return;
   }
+  const pending = pendingStyleChecks.get(currentViewingPhoto.id);
+  const loading = !!pending;
   const sc = currentViewingPhoto.styleCheck;
   if (!sc && !loading) {
     styleCheckCard.classList.add('hidden');
@@ -2928,7 +3000,7 @@ function renderStyleCheckCard(opts) {
   styleCheckCard.classList.toggle('loading', loading);
 
   if (loading) {
-    const retry = opts && opts.retry;
+    const retry = pending && pending.retry;
     const retryText = retry
       ? '모델 혼잡으로 재시도 중 (' + retry.n + '/' + retry.total + ')'
       : '스타일 분석 중...';

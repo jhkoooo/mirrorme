@@ -83,25 +83,37 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
-### 54. v3.11 — 나의 스타일 리포트 (개인 트렌드 분석)
-**프롬프트**: "트렌드분석에 대해 그럼 얘기해보자 난 사실 지금 이거 감이안오는데 ... / 개인트렌드 부터 진행해야겠네 홈화면에 진입카드를 추가하면 개인트렌드라는 명으로 추가가 되는거야? ... / A ok · B 이대로 진행 · C 붙이고 하루 1회 캐시 · D Ok · E 5회로 하자 · 시작해줘"
+### 54. v3.11 — 나의 스타일 리포트 + 다른 사람 사진 마킹 + 검사 race 픽스
+**프롬프트**: "트렌드분석 얘기해보자 / 개인트렌드 부터 진행 / 다른 사람도 찍을 수 있는데 / 분석 횟수 정의는 / 분석 중 스와이프 race / 다 추천대로 진행"
 **수정 파일**: `docs/index.html`, `docs/app.js`
-**내용**: 
-- **홈 4번째 카드 추가** — `나의 스타일 리포트` (아이콘: 막대 그래프). `data-mode="report"` 바인딩 → `enterTrendReport()`.
-- **새 화면 `#trendView`** — 상단 바(← 홈) + 스크롤 본문. 본인 IndexedDB(OOTD 사진 + `styleCheck`) 데이터만 집계. 백엔드 0.
-- **집계 함수 `computeTrends()`** — 이번 달 요약 / 바이브 / 점수 월별 / 태그 TOP5 / 색상 / 전체 통계를 한 번에 반환.
+**내용 (트렌드 리포트 본체)**: 
+- **홈 4번째 카드 추가** — `나의 스타일 리포트` (아이콘: 막대 그래프). `data-mode="report"` → `enterTrendReport()`.
+- **새 화면 `#trendView`** — 상단 바(← 홈) + 스크롤 본문 7섹션. 본인 IndexedDB(OOTD + `styleCheck`) 데이터만 집계. 백엔드 0.
+- **집계 함수 `computeTrends()`** — `facing === 'environment' && subject === 'me'` 필터. 이번 달 요약 / 바이브 / 점수 월별 / 태그 TOP5 / 색상 / 전체 통계.
 - **섹션 7개**:
-  (1) **이번 달 요약 hero** — 기록일 · 평균 점수 · 이번 달 베스트 OOTD 썸네일(탭하면 사진 상세로 이동, 돌아오면 리포트 복귀).
-  (2) **🏅 기록배지** — v3.10에서 만든 `computeMilestones()` + `MILESTONE_DEFS` 재활용. 가로 스크롤. 잠긴 건 grayscale.
-  (3) **🎨 바이브 분포** — 그라디언트 가로 막대. `styleCheck.vibe` 집계 TOP 6.
-  (4) **📈 점수 월별 추이** — **vanilla SVG 라인 차트**(최근 12개월). 외부 라이브러리 X. y그리드 2/5/8, 마지막 점 값 레이블.
-  (5) **👕 자주 쓴 아이템** — 카테고리 탭(상의/하의/신발/아우터/액세서리) + TOP 5 + 막대.
-  (6) **🌈 색상 분포** — 태그 텍스트 + `styleCheck.colorBalance`에서 한국어 색 키워드 추출 (`COLOR_DICT` 14종). 스와치 + 퍼센트 막대.
-  (7) **전체 통계** — 총 기록일 / 총 OOTD / 검사 횟수 + 첫 기록 날짜.
-- **AI 한 줄 코멘트** — Gemini에 통계 요약을 보내 "객관적 1~2문장 코멘트" 생성. **하루 1회 localStorage 캐시**(`mystyle.trendComment.v1`, 데이터 서명 + 날짜). 같은 날 재방문 시 API 호출 0. API 키 없으면 섹션 비공개.
-- **Empty state** — 스타일 검사 **5회 미만**이면 "OOTD 촬영하고 검사 5번 받으세요" 안내 + 현재 횟수 표시 + [오늘의 스타일 찍기] CTA 버튼.
-- **돌아가기 연동** — 리포트 → 사진 상세 → 돌아가기 시 리포트로 복귀(`galleryEntryPoint='report'`). `closePhotoView()`에 복귀 분기 추가.
-- **오버엔지니어링 회피** — 기간 필터·공유·익스포트 전부 뺌. 외부 차트 라이브러리 X(SVG/CSS만). 번들 증가 없음.
+  (1) 이번 달 요약 hero — 기록일·평균 점수·이번 달 베스트 OOTD 썸네일(탭하면 사진 상세 → 돌아오면 리포트 복귀)
+  (2) 🏅 기록배지 — v3.10 `computeMilestones()` 재활용, 가로 스크롤
+  (3) 🎨 바이브 분포 — 그라디언트 가로 막대 TOP 6
+  (4) 📈 점수 월별 추이 — **vanilla SVG 라인 차트** (최근 12개월, 외부 라이브러리 X)
+  (5) 👕 자주 쓴 아이템 — 카테고리 탭 + TOP 5
+  (6) 🌈 색상 분포 — 한국어 색 키워드 14종 추출 + 스와치
+  (7) 전체 통계 — 총 기록일·총 OOTD·검사 횟수 + 첫 기록 날짜
+- **AI 한 줄 코멘트** — Gemini로 객관적 1~2문장 생성. **하루 1회 localStorage 캐시** (`mystyle.trendComment.v1`, 데이터 서명+날짜). API 키 없으면 섹션 비공개.
+- **Empty state** — 스타일 검사 **5회 미만**이면 안내 + 현재 횟수 + CTA.
+- **돌아가기 연동** — `galleryEntryPoint='report'` + `closePhotoView()` 분기.
+
+**내용 (출시 전 추가 처리)**:
+- **사진 주체 필드 `subject`** ('me' | 'other') — `normalizePhoto`에서 옛 사진 자동 'me' 마이그레이션. `photo.subject`가 'other'이면 트렌드/배지 집계에서 제외 (검사 결과·태그·앨범에는 그대로 보존). 이유: 가족·지인을 후면 카메라로 찍어 검사한 결과가 본인 리포트에 섞이는 문제 방지.
+- **사진 상세 상단바에 주체 토글 버튼 `#photoSubject`** — OOTD 전용. 본인=흰 아이콘, 다른 사람=주황 + 작은 점. 탭 시 `photo.subject` 토글 + 토스트 안내.
+- **검사 race condition 픽스** — A 사진 검사 중 → B로 스와이프 시 A 결과가 B에 잘못 표시·저장되던 버그.
+  - `styleCheckInFlight` 전역 락 → `pendingStyleChecks: Map<photoId, {retry}>` 로 교체 (사진별 진행 상태)
+  - `runStyleCheck` 시작 시 `startedPhotoId` 캡처
+  - 결과 도착 시 photoViewList에서 target을 찾아 그 사진에 직접 `styleCheck` 저장
+  - `currentViewingPhoto.id !== startedPhotoId`이면 UI 갱신 없이 토스트로 알림 (*"4/12 사진 분석 완료"*)
+  - `renderStyleCheckCard`가 `pendingStyleChecks.get(currentViewingPhoto.id)`를 보고 로딩/retry 상태 그림
+  - 슬라이드로 사진 바꿀 때 자동으로 새 사진의 styleCheck 카드 또는 빈 상태로 갱신 (`renderCurrentSlide`가 `renderStyleCheckCard()` 호출).
+- **B1 — `"object can not be found here"` 재검사 에러 retryable 추가** — Gemini schema 처리 간헐 에러를 `INTERNAL`/`500`과 함께 자동 재시도 패턴에 포함.
+- **B2 — 깨진 썸네일 placeholder** — `img.onerror` 시 부모에 `.broken` 클래스 추가, CSS로 🚫 placeholder 표시 (갤러리 그리드 + 캘린더 셀 + 일자 시트).
 
 ### 53. v3.10.1 — 분석 성공률 개선 + 설정 시트 스크롤 + 배지 임시 숨김
 **프롬프트**: "스타일분석하면 모델 혼잡으로 재시도 중 돌고나서 멈추는 현상이 너무 잦아 ... 기록배지가 메인의 설정화면에 들어있는게 맞아? 심지어 설정에서 터치 해서 내리는것도 안돼서 완료버튼이 최상단에 있어서 잘 터치도 안됨 / 전부 진행해줘"

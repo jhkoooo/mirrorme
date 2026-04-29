@@ -1086,6 +1086,24 @@
       width: 100%; height: 100%;
       object-fit: cover; display: block;
     }
+    /* 손상된 사진(blob 로드 실패) — img는 숨기고 placeholder만 표시 */
+    .thumb.broken img,
+    .calCell.broken img,
+    #calDaySheet .dayThumb.broken img { display: none; }
+    .thumb.broken,
+    .calCell.broken,
+    #calDaySheet .dayThumb.broken {
+      background: rgba(255,255,255,0.04);
+    }
+    .thumb.broken::after,
+    .calCell.broken::after,
+    #calDaySheet .dayThumb.broken::after {
+      content: '🚫';
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      opacity: 0.4;
+    }
     .thumbHeart {
       position: absolute;
       top: 6px; right: 6px;
@@ -1191,6 +1209,22 @@
       transition: color 150ms ease, transform 150ms ease, background 150ms ease;
     }
     #photoFav.active { color: #ff3b30; }
+
+    /* 사진 주체(본인/다른 사람) 토글 — 본인=흰 아이콘, 다른 사람=주황 + 작은 점 */
+    #photoSubject {
+      position: relative;
+      color: rgba(255,255,255,0.85);
+      transition: color 150ms ease;
+    }
+    #photoSubject.other { color: #ff9f40; }
+    #photoSubject.other::after {
+      content: '';
+      position: absolute; right: 4px; bottom: 4px;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #ff9f40;
+      border: 1.5px solid #000;
+    }
 
     /* 하단 info 패널 (OOTD만, 탭 토글) */
     #photoViewInfo {
@@ -1772,6 +1806,12 @@
       </button>
       <div id="photoViewDate"></div>
       <div id="photoTopActions">
+        <button id="photoSubject" class="iconBtn hidden" aria-label="사진 주체 전환">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="9" r="3.4"/>
+            <path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6"/>
+          </svg>
+        </button>
         <button id="photoFav" class="iconBtn" aria-label="즐겨찾기">♥</button>
         <button id="photoStyleCheckBtn" class="iconBtn hidden" aria-label="스타일 검사">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
