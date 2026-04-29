@@ -167,8 +167,23 @@
       left: 12px;
       z-index: 20;
       pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     #cameraTopBar.hidden { display: none !important; }
+    #testModeBadge {
+      pointer-events: none;
+      padding: 6px 12px;
+      background: rgba(255,159,64,0.92);
+      color: #000;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      border-radius: 999px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    #testModeBadge.hidden { display: none !important; }
     #homeBtn {
       pointer-events: auto;
       width: 42px; height: 42px;
@@ -1766,6 +1781,18 @@
           전문가 — 패션 용어와 상세 분석 (매니아용)
         </div>
       </div>
+
+      <div class="settingGroup">
+        <label>모드</label>
+        <div class="toneChips" id="appModeChips">
+          <button class="toneChip active" data-mode="real">실사용</button>
+          <button class="toneChip" data-mode="test">테스트용</button>
+        </div>
+        <div class="settingHint">
+          <strong>실사용</strong> — 후면 카메라(OOTD) 촬영 시 사람 전신이 감지될 때만 저장.<br/>
+          <strong>테스트용</strong> — 사람 인식 검증을 건너뛰어 피규어·인형 등 어떤 사진도 OOTD로 저장. 거울 앞에 갈 필요 없이 분석/리포트 흐름을 데스크에서 검증할 때 사용. 실사용 전엔 꼭 끄기.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1777,6 +1804,8 @@
         <polyline points="12 19 5 12 12 5"/>
       </svg>
     </button>
+    <!-- 테스트 모드 배지 — 설정에서 켜져 있을 때만 노출 -->
+    <div id="testModeBadge" class="hidden">🧪 테스트 모드</div>
   </div>
 
   <!-- 갤러리 -->

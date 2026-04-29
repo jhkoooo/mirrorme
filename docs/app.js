@@ -76,6 +76,8 @@ const geminiKeySave      = document.getElementById('geminiKeySave');
 const geminiKeyClear     = document.getElementById('geminiKeyClear');
 const keyStatus          = document.getElementById('keyStatus');
 const toneChipsEl        = document.getElementById('toneChips');
+const appModeChipsEl     = document.getElementById('appModeChips');
+const testModeBadge      = document.getElementById('testModeBadge');
 const milestoneBadgesEl  = document.getElementById('milestoneBadges');
 
 // 맥락 입력 시트
@@ -144,6 +146,9 @@ let toastTimer = null;
 // 스타일 검사 관련
 const GEMINI_KEY_STORAGE  = 'mystyle_gemini_api_key';
 const TONE_STORAGE        = 'mystyle_ai_tone';                 // 'friendly' | 'balanced' | 'expert'
+// 앱 모드 — 'real' | 'test'. 테스트 모드는 OOTD 촬영 시 사람 인식 검증을 건너뛰어
+// 데스크에서 피규어·인형 등으로 분석/리포트 흐름을 검증 가능. 거울 앞 왕복 회피용.
+const APP_MODE_STORAGE    = 'mystyle_app_mode';
 // gemini-2.5-flash: Google이 2.0-flash를 신규 사용자에게 제공 중단(2026-04).
 // 결제 활성화 상태이므로 무료 티어 RPD 제약(250) 영향 거의 없음.
 // Vision 지원, tags·brandGuess 풍부히 채움.
@@ -220,8 +225,8 @@ async function startCamera(facing) {
 
   resetZoom();
   updateShutterIndicator();
-  // OOTD 진입 시 실시간 감지 시작, MyFace면 중지
-  if (currentFacing === 'environment') {
+  // OOTD 진입 시 실시간 감지 시작 (테스트 모드면 skip), MyFace면 중지
+  if (currentFacing === 'environment' && getAppMode() !== 'test') {
     startRealtimeDetection();
   } else {
     stopRealtimeDetection();
@@ -456,7 +461,10 @@ function updateShutterIndicator() {
   }
 
   let state, text;
-  if (bypassDetectionForSession) {
+  if (getAppMode() === 'test') {
+    state = 'bypass';
+    text = '🧪 테스트 모드 (검증 없이 저장)';
+  } else if (bypassDetectionForSession) {
     state = 'bypass';
     text = 'AI 감지 비활성 (수동 저장)';
   } else if (modelLoadFailed) {
@@ -594,7 +602,9 @@ async function capturePhoto() {
     const capturedFacing = currentFacing;
 
     // 후면 카메라(OOTD)는 사람 감지 검증 (이중 검증 — 연타 시 false positive 방지)
-    if (capturedFacing === 'environment' && !bypassDetectionForSession) {
+    // 단, 테스트 모드면 검증 자체를 스킵 — 거울 앞 왕복 없이 데스크에서 분석/리포트 검증용.
+    const isTestMode = getAppMode() === 'test';
+    if (capturedFacing === 'environment' && !bypassDetectionForSession && !isTestMode) {
       // 1) 모델 로드 실패 → 1회 모달로 세션 허용 여부 확인
       if (modelLoadFailed) {
         const ok = confirm(
@@ -1798,6 +1808,7 @@ function refreshKeyStatus() {
 function openSettings() {
   refreshKeyStatus();
   refreshToneChips();
+  refreshAppModeChips();
   settings.classList.remove('hidden');
 }
 
@@ -2556,6 +2567,30 @@ function setTone(v) {
   try { localStorage.setItem(TONE_STORAGE, v); } catch(e) {}
 }
 
+function getAppMode() {
+  const v = (function(){ try { return localStorage.getItem(APP_MODE_STORAGE); } catch(e) { return null; } })();
+  return v === 'test' ? 'test' : 'real';
+}
+function setAppMode(v) {
+  const next = v === 'test' ? 'test' : 'real';
+  try { localStorage.setItem(APP_MODE_STORAGE, next); } catch(e) {}
+  applyAppMode();
+}
+// 모드 변경 시 카메라 배지 노출 + 실시간 감지 루프 on/off 동기화
+function applyAppMode() {
+  const isTest = getAppMode() === 'test';
+  if (testModeBadge) testModeBadge.classList.toggle('hidden', !isTest);
+  // 카메라가 OOTD로 켜져 있을 때만 감지 루프 동작 — 테스트 모드면 중지, 실사용이면 다시 시작
+  if (currentStream && currentFacing === 'environment') {
+    if (isTest) {
+      stopRealtimeDetection();
+    } else {
+      startRealtimeDetection();
+    }
+    updateShutterIndicator();
+  }
+}
+
 function buildStyleCheckPrompt(tone, context) {
   const toneLine = TONE_DIRECTIVES[tone] || TONE_DIRECTIVES.balanced;
   const ctxLine = context && context.trim()
@@ -3144,6 +3179,25 @@ toneChipsEl.addEventListener('click', (e) => {
   setTone(btn.dataset.tone);
   refreshToneChips();
 });
+
+// ─── 앱 모드 (실사용/테스트) ────────────────────
+function refreshAppModeChips() {
+  if (!appModeChipsEl) return;
+  const cur = getAppMode();
+  appModeChipsEl.querySelectorAll('.toneChip').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === cur);
+  });
+}
+if (appModeChipsEl) {
+  appModeChipsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.toneChip');
+    if (!btn) return;
+    setAppMode(btn.dataset.mode);
+    refreshAppModeChips();
+  });
+}
+// 페이지 로드 시 모드 적용 (배지 표시 등) — 카메라는 아직 켜지지 않은 상태라 detection 영향 X
+applyAppMode();
 
 // ============================================================
 //  라이프사이클
