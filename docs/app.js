@@ -1278,6 +1278,12 @@ function renderCurrentSlide() {
   currentViewingPhoto = curr || null;
   if (!curr) return;
 
+  // v3.11.8: 현재 사진의 ArrayBuffer를 미리 메모리로 복사 (분석 시 detach 영향 회피용).
+  // fire-and-forget — 분석 누르기 전에 끝나면 캐시 hit, 아니면 분석 시점에 다시 시도.
+  if (!curr._buf) {
+    ensurePhotoBuf(curr).catch(e => console.warn('[MyStyle] _buf 캐시 실패:', e && e.message));
+  }
+
   photoViewDate.textContent = formatDate(curr.timestamp);
   photoMemoInput.value = curr.memo || '';
   photoFav.classList.toggle('active', !!curr.favorite);
@@ -2664,28 +2670,41 @@ function buildStyleCheckPrompt(tone, context) {
   ].join('\n');
 }
 
-// 분석 전송용 이미지 처리. v3.11.6에서 **detach 회피 단계 추가**.
-// 핵심: iOS Safari는 같은 IndexedDB blob을 두 번째 사용할 때 backing store가 detach되어
-// arrayBuffer / Image / fetch / FileReader 모든 접근 경로를 차단. 그래서 blob 자체에서
-// 데이터를 빼낼 수가 없음. 첫 사용 시점에 즉시 ArrayBuffer로 메모리 복사하고 그걸로 새 Blob을
-// 만들면 IndexedDB와 완전히 분리되어 detach 영향 0.
-//
-// 단, arrayBuffer() 자체가 detach 영향을 받는다는 보고도 있어 그 단계 실패 시 명확히 throw해서
-// 디버그 진단에서 stage='downscale'로 잡히도록 함 (silent fallback 제거).
+// v3.11.8: 사진의 ArrayBuffer를 인메모리 photo._buf에 캐시.
+// 모든 분석은 이 캐시로부터 새 Blob을 만들어 사용 → IndexedDB와 완전 분리 →
+// updatePhoto가 record를 다시 쓰든 말든, iOS Safari가 IndexedDB blob을 invalidate하든 영향 0.
+// 첫 진입 시점(아직 다른 detach 트리거 없을 때)에 즉시 추출하는 게 핵심.
+async function ensurePhotoBuf(photo) {
+  if (!photo) return null;
+  if (photo._buf) return photo._buf;
+  // 1차 시도: 인메모리 photo.blob에서 직접 추출
+  try {
+    if (photo.blob) {
+      photo._buf = await photo.blob.arrayBuffer();
+      return photo._buf;
+    }
+  } catch (e) {
+    console.warn('[MyStyle] photo.blob arrayBuffer 실패, fresh fetch 시도:', e && e.message);
+  }
+  // 2차 시도: IndexedDB에서 fresh하게 다시 받아 추출
+  try {
+    const fresh = await getPhoto(photo.id);
+    if (fresh && fresh.blob) {
+      photo._buf = await fresh.blob.arrayBuffer();
+      return photo._buf;
+    }
+  } catch (e2) {
+    throw new Error('blob 데이터 추출 실패 (fresh fetch도 실패): ' + (e2 && e2.message));
+  }
+  throw new Error('blob 데이터 추출 실패: photo가 비어있음');
+}
+
+// 분석 전송용 이미지 처리. v3.11.8 단순화 — 호출자가 이미 detach-free Blob을 넘겨주므로
+// 여기선 canvas 재인코딩만 담당. (이전 v3.11.6의 arrayBuffer 우회 단계는 ensurePhotoBuf로 이동)
 async function downscaleImageBlob(blob, maxDim, quality) {
   if (!maxDim) maxDim = 768;
   if (!quality) quality = 0.85;
-
-  // 1단계: blob을 즉시 ArrayBuffer로 복사 → 새 Blob 생성 (detach 회피)
-  let safeBlob;
-  try {
-    const buf = await blob.arrayBuffer();
-    safeBlob = new Blob([buf], { type: blob.type || 'image/jpeg' });
-  } catch (e) {
-    throw new Error('blob 메모리 복사 실패 (arrayBuffer): ' + (e && e.message));
-  }
-
-  // 2단계: 새 Blob을 Image로 디코딩 → canvas로 재인코딩
+  const safeBlob = blob; // 호출자가 이미 detach-safe 보장
   const url = URL.createObjectURL(safeBlob);
   try {
     const img = await new Promise((resolve, reject) => {
@@ -2933,22 +2952,23 @@ async function runStyleCheck(contextStr) {
   // v3.11.2 디버그: 에러 발생 시 진단을 위해 blob 상태를 함께 노출
   let __diag = { stage: 'init', origSize: 0, origType: '', sentSize: 0, sentType: '' };
   try {
-    // 진행 중인 IndexedDB write(메모/태그/subject/favorite 변경 등)가 끝나길 먼저 기다림.
-    // write 직후 같은 record를 읽으면 iOS Safari가 detach 상태 blob을 줄 가능성이 있어
-    // race를 차단하기 위함.
+    // 진행 중인 IndexedDB write가 끝나길 먼저 기다림 (race 차단).
     __diag.stage = 'awaitPending';
     try { await pendingUpdate; } catch (e) {}
 
-    // iOS Safari는 오래된 blob 참조가 분리(detach)되면 접근 불가. 매 분석마다
-    // IndexedDB에서 최신 blob을 다시 읽어와 안전하게 사용.
-    __diag.stage = 'getPhoto';
-    const fresh = await getPhoto(startedPhotoId);
-    if (!fresh || !fresh.blob) throw new Error('사진을 다시 불러올 수 없습니다');
-    __diag.origSize = (fresh.blob && fresh.blob.size) || 0;
-    __diag.origType = (fresh.blob && fresh.blob.type) || '';
-    // 전송용 이미지 768px로 축소 (토큰·처리 부담 감소로 503 빈도↓, 비용↓)
+    // v3.11.8: ArrayBuffer 캐시 사용. 사진 상세 진입 시 미리 추출해둔 _buf가 있으면 그것을,
+    // 없으면 지금 추출 시도. 어느 경우든 IndexedDB의 detach 영향과 무관한 순수 메모리 데이터.
+    __diag.stage = 'ensureBuf';
+    const photoForBuf = (photoViewList && photoViewList.find(p => p && p.id === startedPhotoId))
+      || currentViewingPhoto;
+    const buf = await ensurePhotoBuf(photoForBuf);
+    if (!buf) throw new Error('사진 데이터 캐시를 받지 못했습니다');
+    const safeBlob = new Blob([buf], { type: 'image/jpeg' });
+    __diag.origSize = safeBlob.size;
+    __diag.origType = safeBlob.type;
+    // 전송용 이미지 768px로 축소
     __diag.stage = 'downscale';
-    const blobForApi = await downscaleImageBlob(fresh.blob, 768, 0.85);
+    const blobForApi = await downscaleImageBlob(safeBlob, 768, 0.85);
     __diag.sentSize = (blobForApi && blobForApi.size) || 0;
     __diag.sentType = (blobForApi && blobForApi.type) || '';
     if (!blobForApi || blobForApi.size === 0) {
@@ -3013,10 +3033,6 @@ async function runStyleCheck(contextStr) {
   } catch (err) {
     console.error('[MyStyle] 스타일 검사 실패:', err, '| diag:', __diag);
     const msg = (err && err.message) ? err.message : '알 수 없는 오류';
-    // v3.11.2 디버그: 진단 가능한 raw 메시지를 토스트로 풀 노출.
-    // 어느 단계에서 실패했고 blob 상태가 어땠는지 확인하기 위함. 안정화 후 제거 예정.
-    const diagSuffix = ' [' + __diag.stage + ' / orig ' + __diag.origSize + 'B ' + (__diag.origType || '?') +
-      ' / sent ' + __diag.sentSize + 'B ' + (__diag.sentType || '?') + ']';
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
       const isDaily    = /(day|daily|per day|RequestsPerDay|PerDay)/i.test(msg);
       const isMinute   = /(minute|per minute|RPM|PerMinute)/i.test(msg);
@@ -3032,9 +3048,14 @@ async function runStyleCheck(contextStr) {
         hint = '쿼터 초과';
       }
       toast(hint, 7500);
+    } else if (msg.indexOf('503') >= 0 || msg.indexOf('overload') >= 0) {
+      toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
+    } else if (msg.indexOf('object can not be found') >= 0) {
+      toast('AI 응답 형식 오류 — 잠시 후 다시 시도해 주세요', 4500);
+    } else if (msg.indexOf('파싱') >= 0) {
+      toast('응답이 깨져 재시도가 필요해요', 4500);
     } else {
-      // 그 외 모든 에러: raw 메시지 풀 + 진단 정보를 함께 노출 (디버그)
-      toast('[디버그] ' + msg.slice(0, 280) + diagSuffix, 12000);
+      toast('분석 실패: ' + msg.slice(0, 140), 5000);
     }
     if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
       renderStyleCheckCard();

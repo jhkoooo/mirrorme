@@ -83,6 +83,19 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 62. v3.11.8 — ArrayBuffer 캐시로 IndexedDB blob detach 영구 회피 + 디버그 토스트 원복
+**프롬프트**: "그냥 검사했을때 결과가 잘나오고 재검사시에도 결과가 잘나오고 본인을 누르던 다른사람을 누르던 결과가 잘나온다 이렇게만 알고싶은데 왜 자꾸 복잡해지는거야"
+**수정 파일**: `docs/app.js`
+**의도**: v3.11.6/.7 시리즈에서 부분 픽스만 쌓이며 사용자에게 매번 결정 묻고 있어 피로감 누적. 모든 분석 시나리오를 한 번에 안정화하는 픽스로 정리.
+**핵심 변경**:
+- **`ensurePhotoBuf(photo)` 헬퍼 추가** — 인메모리 photo 객체에 `_buf` 필드를 캐시. 1차로 photo.blob.arrayBuffer() 시도, 실패 시 IndexedDB에서 fresh fetch 후 추출. 한 번 캐시되면 어떤 IndexedDB 변경(updatePhoto 호출 등)에도 영향받지 않는 순수 메모리 데이터.
+- **사진 상세 진입(renderCurrentSlide) 시 `_buf` 미리 추출** — fire-and-forget. 사용자가 분석 누를 때까지 보통 추출이 끝나 있어 분석 단계는 캐시 hit. swipe 직후 즉시 분석 같은 빠른 케이스는 분석 시점에 다시 시도.
+- **`runStyleCheck`이 `ensurePhotoBuf`로 buf 받아 새 Blob 생성 후 다운스케일** — IndexedDB read 단계 자체를 분석 흐름에서 제거. detach 트리거에 노출되지 않음.
+- **`downscaleImageBlob` 단순화** — v3.11.6의 arrayBuffer 우회 단계는 ensurePhotoBuf로 이동했으니 제거. canvas 재인코딩만 담당.
+- **디버그 토스트 원복** — `[디버그] ... [stage / orig / sent]` 풀 노출 토스트는 진단 임무 완수했으니 일반 사용자 친화 메시지로 복귀 (`AI 응답 형식 오류` 등). console.error에는 stage 정보 그대로 남김 — 향후 디버그 가능.
+**커버 케이스**: 첫 분석 / 재분석 / subject 토글 후 분석 / 메모·태그 변경 후 분석 / 하트 토글 후 분석 / 연속 OOTD 분석 — 전부 `_buf` 메모리 캐시로 일관 처리. updatePhoto가 blob을 덮어쓰든 read-modify-write든 무관.
+**유지 사항**: v3.11.7의 `updatePhoto` read-modify-write + `await pendingUpdate`는 안전 보강이라 그대로 둠. 캐시와 함께 이중 보호.
+
 ### 61. v3.11.7 — updatePhoto가 blob 통째로 덮어쓰던 detach 트리거 차단
 **프롬프트**: "다른사람으로 선택하고 분석 누르니까 [디버그] blob 메모리 복사 실패 (arrayBuffer): The object can not be found here. [downscale / orig 72087B / sent 0B] 라고 뜨네"
 **수정 파일**: `docs/app.js`
