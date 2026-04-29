@@ -2844,13 +2844,25 @@ async function runStyleCheck(contextStr) {
     renderStyleCheckCard();
   }
 
+  // v3.11.2 디버그: 에러 발생 시 진단을 위해 blob 상태를 함께 노출
+  let __diag = { stage: 'init', origSize: 0, origType: '', sentSize: 0, sentType: '' };
   try {
     // iOS Safari는 오래된 blob 참조가 분리(detach)되면 접근 불가. 매 분석마다
     // IndexedDB에서 최신 blob을 다시 읽어와 안전하게 사용.
+    __diag.stage = 'getPhoto';
     const fresh = await getPhoto(startedPhotoId);
     if (!fresh || !fresh.blob) throw new Error('사진을 다시 불러올 수 없습니다');
+    __diag.origSize = (fresh.blob && fresh.blob.size) || 0;
+    __diag.origType = (fresh.blob && fresh.blob.type) || '';
     // 전송용 이미지 768px로 축소 (토큰·처리 부담 감소로 503 빈도↓, 비용↓)
+    __diag.stage = 'downscale';
     const blobForApi = await downscaleImageBlob(fresh.blob, 768, 0.85);
+    __diag.sentSize = (blobForApi && blobForApi.size) || 0;
+    __diag.sentType = (blobForApi && blobForApi.type) || '';
+    if (!blobForApi || blobForApi.size === 0) {
+      throw new Error('다운스케일 결과가 빈 blob입니다 (size=' + __diag.sentSize + ')');
+    }
+    __diag.stage = 'gemini';
     const tone = getTone();
     const result = await callGeminiVisionWithRetry(
       key, blobForApi, contextStr, tone,
@@ -2907,34 +2919,30 @@ async function runStyleCheck(contextStr) {
       toast(dateStr + ' 사진 분석 완료', 4500);
     }
   } catch (err) {
-    console.error('[MyStyle] 스타일 검사 실패:', err);
+    console.error('[MyStyle] 스타일 검사 실패:', err, '| diag:', __diag);
     const msg = (err && err.message) ? err.message : '알 수 없는 오류';
-    // 429(쿼터) / 503(혼잡) 안내 메시지 분기
+    // v3.11.2 디버그: 진단 가능한 raw 메시지를 토스트로 풀 노출.
+    // 어느 단계에서 실패했고 blob 상태가 어땠는지 확인하기 위함. 안정화 후 제거 예정.
+    const diagSuffix = ' [' + __diag.stage + ' / orig ' + __diag.origSize + 'B ' + (__diag.origType || '?') +
+      ' / sent ' + __diag.sentSize + 'B ' + (__diag.sentType || '?') + ']';
     if (msg.indexOf('429') === 0 || msg.indexOf(' 429') >= 0) {
       const isDaily    = /(day|daily|per day|RequestsPerDay|PerDay)/i.test(msg);
       const isMinute   = /(minute|per minute|RPM|PerMinute)/i.test(msg);
       const isBilling  = /(plan and billing|check your plan|billing details|exceeded your current quota)/i.test(msg);
       let hint;
       if (isBilling) {
-        hint = '무료 한도 소진. 새 API 키 발급(AI Studio 새 프로젝트) 또는 결제 활성화 필요. 내일 리셋될 수도 있음';
+        hint = '무료 한도 소진. 새 API 키 발급 또는 결제 활성화 필요';
       } else if (isDaily) {
-        hint = '일일 한도 초과. 내일 리셋 되거나 새 API 키로 교체 필요';
+        hint = '일일 한도 초과';
       } else if (isMinute) {
-        hint = '분당 한도 초과. 1분 후 다시 시도';
+        hint = '분당 한도 초과. 1분 후 재시도';
       } else {
-        const detailMatch = msg.match(/429\s*[:：-]\s*(.+)/);
-        const detail = detailMatch ? detailMatch[1].slice(0, 100) : '';
-        hint = '쿼터 초과' + (detail ? ' — ' + detail : '. AI Studio에서 사용량 확인');
+        hint = '쿼터 초과';
       }
       toast(hint, 7500);
-    } else if (msg.indexOf('503') >= 0 || msg.indexOf('overload') >= 0) {
-      toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
-    } else if (msg.indexOf('파싱') >= 0) {
-      toast('응답이 깨져 재시도가 필요해요', 4500);
-    } else if (msg.indexOf('object can not be found') >= 0) {
-      toast('AI 응답 형식 오류 — 잠시 후 다시 시도해 주세요', 4500);
     } else {
-      toast('분석 실패: ' + msg.slice(0, 140), 5000);
+      // 그 외 모든 에러: raw 메시지 풀 + 진단 정보를 함께 노출 (디버그)
+      toast('[디버그] ' + msg.slice(0, 280) + diagSuffix, 12000);
     }
     if (currentViewingPhoto && currentViewingPhoto.id === startedPhotoId) {
       renderStyleCheckCard();

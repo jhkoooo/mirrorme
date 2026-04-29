@@ -83,6 +83,17 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 56. v3.11.2 — 분석 실패 진단 디버그 토스트 (임시)
+**프롬프트**: "여전히 다른사람으로 변경하는 아이콘 눌렀다가 다시 눌러서 본인사진으로 표시 뜬 상태에서 분석돌리는순간 오류 떠 / 분석 된 상태에서 다시 분석눌러도 동일 한 오류 / 한사이클 더 잡고가자"
+**수정 파일**: `docs/app.js`, `docs/index.html`
+**상황**: v3.11.1에서 `response_schema` 자체를 제거했음에도 같은 메시지("object can not be found here")가 발생. 즉 schema 외 다른 원인(다운스케일된 blob 문제, mime/base64 인코딩 등)이 의심되는데 사용자 토스트가 짧게 잘려 진단 불가.
+**진단 디버그 추가** (안정화 후 제거 예정):
+- runStyleCheck 안에서 단계별 상태 + blob 정보 캡처: `__diag = {stage, origSize, origType, sentSize, sentType}`. stage는 'init'→'getPhoto'→'downscale'→'gemini'로 진행.
+- 다운스케일 결과 blob의 size가 0이면 즉시 fail (iOS Safari toBlob 빈 결과 케이스 차단).
+- catch 시 토스트를 **raw 메시지 풀(280자) + 진단 정보**로 교체 (12초). 어느 단계에서 어떤 blob 상태로 실패했는지 한 번에 파악.
+- 토스트 CSS도 long-message 친화로 업데이트(`border-radius: 16px`, `word-break: break-word`, `line-height: 1.45`).
+**다음 사이클**: 사용자가 다음 실패 시 토스트 풀텍스트를 알려주면 진짜 원인 잡고 본 픽스 들어감 + 디버그 토스트 원복.
+
 ### 55. v3.11.1 — "The object can not be found here" schema 에러 근본 픽스
 **프롬프트**: "본인사진으로 표시 뜬 상태에서 분석돌리는순간 모델 혼잡 5/5 까지 돌고 분석 실패 / 재분석시에 여전히 혼잡 5/5 까지 돌고 분석 실패 발생"
 **수정 파일**: `docs/app.js`
