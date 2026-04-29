@@ -83,6 +83,15 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 61. v3.11.7 — updatePhoto가 blob 통째로 덮어쓰던 detach 트리거 차단
+**프롬프트**: "다른사람으로 선택하고 분석 누르니까 [디버그] blob 메모리 복사 실패 (arrayBuffer): The object can not be found here. [downscale / orig 72087B / sent 0B] 라고 뜨네"
+**수정 파일**: `docs/app.js`
+**진단 (사용자 토스트가 정확히 알려줌)**: `arrayBuffer()` 자체가 detach로 차단됨 (sent=0B). 즉 blob이 IndexedDB 차원에서 invalidate된 상태. 트리거를 추적해보니 — `updatePhoto`가 `store.put(photo)`로 photo를 **통째로(blob 포함)** 덮어쓰고 있었음. 메타데이터만 바뀌어도 blob 필드까지 다시 씀 → iOS Safari가 그 record의 blob 핸들을 invalidate → 이후 `getPhoto` 읽기에서 detach blob 반환. subject 토글이나 styleCheck 저장 같은 단순 메타 업데이트도 매번 blob을 invalidate시켜왔던 것.
+**픽스 (두 단계)**:
+1. **`updatePhoto`를 read-modify-write 패턴으로 변경**: 같은 트랜잭션 안에서 기존 record를 `get`해서 native blob을 추출 → 메타 머지 → `put`할 때 `merged.blob = existing.blob`으로 IndexedDB가 보유한 native blob 인스턴스를 그대로 유지. 인메모리 photo 객체의 blob 참조와 무관하게 동작 → invalidate 트리거 회피.
+2. **`runStyleCheck`이 진행 중인 write를 기다리게**: 시작 직후 `await pendingUpdate`로 toggle/저장 등 메타 업데이트 트랜잭션이 끝나길 먼저 대기. write 직후 즉시 read하는 race 차단. 새 stage='awaitPending' 추가로 진단도 가능.
+**예상**: 재분석 / subject 토글 후 분석 / 메모·태그 변경 후 분석 모두 정상 통과. 만약 또 발생하면 토스트가 다른 stage·다른 메시지로 잡힐 것 → 다음 사이클 진단.
+
 ### 60. v3.11.6 — IndexedDB blob detach 추가 회피 (arrayBuffer 우회 단계 도입)
 **프롬프트**: "피규어 사진으로 테스트하긴했는데 아직도 같은사진 재검사시에 [디버그] The object can not be found here. [orig 68344B / sent 68344B] 에러 발생"
 **수정 파일**: `docs/app.js`

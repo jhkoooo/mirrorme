@@ -708,11 +708,29 @@ async function savePhoto(blob, facing) {
   });
 }
 
+// v3.11.7: read-modify-write로 변경. 이전엔 store.put(photo)로 blob까지 통째로 덮어썼는데,
+// iOS Safari가 그러면 그 record의 blob 핸들을 invalidate해서 이후 읽기가 detach 상태로 옴
+// (재분석 / 토글 후 분석 시 "The object can not be found here." 발생).
+// 기존 record를 read 해서 그 native blob을 그대로 유지하고 메타데이터만 머지 후 put.
 async function updatePhoto(photo) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(photo);
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(photo.id);
+    getReq.onsuccess = () => {
+      const existing = getReq.result;
+      if (!existing) {
+        // record가 없으면 그냥 들어온 객체 그대로 put (촬영 직후 저장 등)
+        store.put(photo);
+        return;
+      }
+      // 메타데이터만 덮어쓰기, blob은 IndexedDB에 저장된 native 인스턴스 유지
+      const merged = Object.assign({}, existing, photo);
+      merged.blob = existing.blob;
+      store.put(merged);
+    };
+    getReq.onerror = () => reject(getReq.error);
     tx.oncomplete = () => resolve();
     tx.onerror    = () => reject(tx.error);
   });
@@ -2915,6 +2933,12 @@ async function runStyleCheck(contextStr) {
   // v3.11.2 디버그: 에러 발생 시 진단을 위해 blob 상태를 함께 노출
   let __diag = { stage: 'init', origSize: 0, origType: '', sentSize: 0, sentType: '' };
   try {
+    // 진행 중인 IndexedDB write(메모/태그/subject/favorite 변경 등)가 끝나길 먼저 기다림.
+    // write 직후 같은 record를 읽으면 iOS Safari가 detach 상태 blob을 줄 가능성이 있어
+    // race를 차단하기 위함.
+    __diag.stage = 'awaitPending';
+    try { await pendingUpdate; } catch (e) {}
+
     // iOS Safari는 오래된 blob 참조가 분리(detach)되면 접근 불가. 매 분석마다
     // IndexedDB에서 최신 blob을 다시 읽어와 안전하게 사용.
     __diag.stage = 'getPhoto';
