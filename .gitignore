@@ -1,0 +1,10 @@
+# 비공개 작업 문서 — public repo에 노출하지 않음
+PROJECT.md
+CHANGES.md
+CLAUDE.md
+.claude-memory/
+
+# 일반
+.DS_Store
+Thumbs.db
+*.log
