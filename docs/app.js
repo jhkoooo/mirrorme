@@ -2602,9 +2602,12 @@ function buildStyleCheckPrompt(tone, context) {
   ].join('\n');
 }
 
-// 분석 전송용 이미지 다운스케일. Gemini에 원본을 보내면 타일 토큰이 많이 잡히고
-// 서버 처리도 느려져 503 빈도가 올라감. 768px 이하로 축소해 토큰·처리·전송 모두 경량화.
-// 패션 분석 품질엔 영향 거의 없음 (색상·실루엣·아이템 판별은 768px로 충분).
+// 분석 전송용 이미지 처리.
+// v3.11.3 변경: 사이즈 무관하게 **항상 canvas로 재인코딩**해서 IndexedDB와 분리된 새 blob을 반환.
+// 이유: 768px 이하인 사진은 이전 버전에서 다운스케일 skip하고 IndexedDB blob을 그대로 전송했는데,
+// iOS Safari에서 같은 IndexedDB blob을 두 번째 사용 시 backing store가 detach되어
+// `blobToBase64`의 모든 fallback이 "The object can not be found here." 에러로 실패.
+// canvas.toBlob 결과는 IndexedDB와 무관한 fresh blob이라 detach 영향 0.
 async function downscaleImageBlob(blob, maxDim, quality) {
   if (!maxDim) maxDim = 768;
   if (!quality) quality = 0.85;
@@ -2613,25 +2616,36 @@ async function downscaleImageBlob(blob, maxDim, quality) {
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
-      i.onerror = (e) => reject(e);
+      i.onerror = () => reject(new Error('이미지 로드 실패'));
       i.src = url;
     });
     const w0 = img.naturalWidth || img.width;
     const h0 = img.naturalHeight || img.height;
-    if (!w0 || !h0) return blob;
-    if (w0 <= maxDim && h0 <= maxDim) return blob; // 이미 충분히 작으면 그대로
-    const scale = Math.min(maxDim / w0, maxDim / h0);
-    const w = Math.max(1, Math.round(w0 * scale));
-    const h = Math.max(1, Math.round(h0 * scale));
+    if (!w0 || !h0) throw new Error('이미지 크기 0');
+    // maxDim 초과면 비율 유지하며 축소, 이하면 원본 크기 유지 — 어느 쪽이든 canvas는 거침
+    let w, h;
+    if (w0 <= maxDim && h0 <= maxDim) {
+      w = w0; h = h0;
+    } else {
+      const scale = Math.min(maxDim / w0, maxDim / h0);
+      w = Math.max(1, Math.round(w0 * scale));
+      h = Math.max(1, Math.round(h0 * scale));
+    }
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-    const out = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-    return out || blob;
+    const out = await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (b) => b ? resolve(b) : reject(new Error('canvas.toBlob 결과 null')),
+        'image/jpeg',
+        quality
+      );
+    });
+    return out;
   } catch (e) {
-    console.warn('[MyStyle] 다운스케일 실패, 원본 사용:', e && e.message);
-    return blob;
+    console.warn('[MyStyle] 재인코딩 실패, 원본 fallback:', e && e.message);
+    return blob; // 최후 fallback — detach 위험 있음
   } finally {
     try { URL.revokeObjectURL(url); } catch (_) {}
   }

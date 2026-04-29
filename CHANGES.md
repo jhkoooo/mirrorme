@@ -83,6 +83,18 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 57. v3.11.3 — IndexedDB blob detach 회피 (재분석 실패 근본 픽스)
+**프롬프트**: "분석된거 다시 분석하려고 하면 [디버그] The object can not be found here. [gemini /orig 333610B / sent 333610B] 이렇게 뜬다"
+**수정 파일**: `docs/app.js`
+**진단**: 디버그 토스트가 정확한 단서를 줌. `orig === sent` (사이즈 동일) → 다운스케일 함수가 **이미지가 768px 이하라 skip하고 원본 blob을 그대로 반환**. 그 IndexedDB blob이 다음 단계 `blobToBase64`로 들어가는데, **iOS Safari에서 같은 IndexedDB blob을 두 번째 사용할 때 backing store가 detach** 상태가 되어 `arrayBuffer()` / `URL.createObjectURL+fetch` / `FileReader` 3단 fallback 모두 같은 에러로 실패. 그 표준 에러 메시지가 정확히 `"The object can not be found here."`.
+**왜 첫 분석은 성공했나**: 첫 호출 시점엔 detach 안 된 상태. 같은 photo의 blob을 두 번째 사용할 때부터 detach 발생. 그래서 "재분석 시" 또는 "토글 후 분석 시"(토글이 photo 객체를 건드려 reference 갱신 트리거)에 재현됨.
+**픽스**: `downscaleImageBlob`이 사이즈 무관하게 **항상 canvas로 재인코딩**하도록 변경. canvas.toBlob 결과는 IndexedDB와 분리된 fresh blob이라 detach 영향 0.
+- 768px 이하 사진도 원본 크기 유지하며 canvas 거침 (재인코딩 비용은 작은 이미지엔 무시 가능).
+- 768px 초과 사진은 기존처럼 비율 축소 후 canvas로 재인코딩.
+- canvas.toBlob 실패 시 명확한 에러 throw + 원본 fallback (최후 수단, detach 위험 있음).
+**부작용**: 작은 사진은 한 번 더 JPEG 재인코딩 → 미세한 디테일 손실 가능. 패션 분석엔 무의미한 수준.
+**다음**: 안정 확인되면 v3.11.2 디버그 토스트(`[디버그]` 풀텍스트)를 원복할 예정.
+
 ### 56. v3.11.2 — 분석 실패 진단 디버그 토스트 (임시)
 **프롬프트**: "여전히 다른사람으로 변경하는 아이콘 눌렀다가 다시 눌러서 본인사진으로 표시 뜬 상태에서 분석돌리는순간 오류 떠 / 분석 된 상태에서 다시 분석눌러도 동일 한 오류 / 한사이클 더 잡고가자"
 **수정 파일**: `docs/app.js`, `docs/index.html`
