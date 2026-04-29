@@ -177,13 +177,31 @@ const CATEGORY_LABELS = {
 // ============================================================
 //  토스트
 // ============================================================
-// 일반 토스트는 read-only. opts.onTap을 주면 클릭 가능 토스트로 동작 (스타일 + 핸들러).
+// 일반 토스트는 read-only. opts.onTap을 주면 클릭 가능 토스트로 동작 (좌측 아이콘 + 우측 CTA 칩).
 function toast(msg, duration = 2400, opts) {
-  toastEl.textContent = msg;
-  toastEl.classList.add('visible');
-  // 이전 클릭 핸들러 정리
+  // 이전 상태 정리
+  toastEl.classList.remove('clickable');
+  toastEl.style.pointerEvents = '';
   toastEl.onclick = null;
+
   if (opts && typeof opts.onTap === 'function') {
+    // 구조화 토스트: ✨ 아이콘 + 메시지 + "열기 ›" 칩
+    const icon = opts.icon || '✨';
+    const ctaLabel = opts.ctaLabel || '열기 ›';
+    toastEl.innerHTML = '';
+    const iconEl = document.createElement('span');
+    iconEl.className = 'toastIcon';
+    iconEl.textContent = icon;
+    const textEl = document.createElement('span');
+    textEl.className = 'toastText';
+    textEl.textContent = msg;
+    const ctaEl = document.createElement('span');
+    ctaEl.className = 'toastCta';
+    ctaEl.textContent = ctaLabel;
+    toastEl.appendChild(iconEl);
+    toastEl.appendChild(textEl);
+    toastEl.appendChild(ctaEl);
+
     toastEl.classList.add('clickable');
     toastEl.style.pointerEvents = 'auto';
     const cb = opts.onTap;
@@ -197,9 +215,10 @@ function toast(msg, duration = 2400, opts) {
       }
     };
   } else {
-    toastEl.classList.remove('clickable');
-    toastEl.style.pointerEvents = '';
+    toastEl.textContent = msg;
   }
+  toastEl.classList.add('visible');
+
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     toastEl.classList.remove('visible');
@@ -972,6 +991,12 @@ async function renderGallery() {
       // 손상된/로드 실패 사진 fallback — 옛 사진 일부에서 발생하는 ?엑박 방지
       img.onerror = () => { div.classList.add('broken'); };
       div.appendChild(img);
+      // '다른 사람' 사진 좌상단 주황 점 — 한눈에 분류 인식 (하트=우상단과 위치 분리)
+      if (photo.subject === 'other') {
+        const dot = document.createElement('div');
+        dot.className = 'thumbSubjectDot';
+        div.appendChild(dot);
+      }
       if (photo.favorite) {
         const heart = document.createElement('div');
         heart.className = 'thumbHeart';
@@ -1168,6 +1193,11 @@ function openCalDaySheet(dateObj, dayPhotos) {
     img.src = getPhotoUrl(photo);
     img.onerror = () => { div.classList.add('broken'); };
     div.appendChild(img);
+    if (photo.subject === 'other') {
+      const dot = document.createElement('div');
+      dot.className = 'thumbSubjectDot';
+      div.appendChild(dot);
+    }
     if (photo.favorite) {
       const heart = document.createElement('div');
       heart.className = 'calHeart';
@@ -3055,7 +3085,7 @@ async function runStyleCheck(contextStr) {
       const d = new Date(target.timestamp);
       const dateStr = (d.getMonth() + 1) + '/' + d.getDate();
       const timeStr = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-      toast(dateStr + ' ' + timeStr + ' 사진 분석 완료  ›', 5000, {
+      toast(dateStr + ' ' + timeStr + ' 분석 완료', 5000, {
         onTap: () => {
           // photoView 안에서만 jump 동작 — 다른 화면(홈/리포트)에선 토스트 자동 닫힘만
           if (!photoView || photoView.classList.contains('hidden')) return;

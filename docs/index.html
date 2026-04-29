@@ -91,13 +91,45 @@
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
+    /* 클릭 가능 토스트: 좌측 아이콘 + 텍스트 + 우측 CTA 칩 */
     #toast.clickable {
       cursor: pointer;
-      background: rgba(20,20,30,0.92);
+      background: rgba(28,28,36,0.94);
       border: 1px solid rgba(255,255,255,0.12);
+      padding: 10px 10px 10px 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-align: left;
     }
     #toast.clickable:active {
       transform: translateX(-50%) translateY(0) scale(0.97);
+    }
+    #toast .toastIcon {
+      width: 28px; height: 28px;
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #ffb84d, #ff7a3d);
+      border-radius: 50%;
+      font-size: 14px;
+    }
+    #toast .toastText {
+      font-size: 13px;
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #toast .toastCta {
+      flex-shrink: 0;
+      padding: 5px 10px;
+      background: rgba(255,255,255,0.95);
+      color: #000;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
     }
 
     /* ============ 하단 컨트롤 ============ */
@@ -862,8 +894,12 @@
     }
     #galleryHeader button {
       background: none; border: 0; color: #fff;
-      font-size: 16px; font-weight: 600; padding: 6px 8px;
+      padding: 6px 8px;
       justify-self: start;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    #galleryHeader button svg {
+      width: 22px; height: 22px;
     }
     #galleryHeader .title {
       font-size: 17px; font-weight: 700;
@@ -1136,6 +1172,16 @@
       font-size: 16px;
       line-height: 1;
       text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+      pointer-events: none;
+    }
+    /* '다른 사람' 사진 좌상단 표시 — 하트(우상단)와 위치 분리 */
+    .thumbSubjectDot {
+      position: absolute;
+      top: 6px; left: 6px;
+      width: 8px; height: 8px;
+      background: #ff9f40;
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.4);
       pointer-events: none;
     }
     #galleryEmpty {
@@ -1819,7 +1865,12 @@
   <!-- 갤러리 -->
   <div id="gallery" class="hidden">
     <div id="galleryHeader">
-      <button id="galleryClose">← 돌아가기</button>
+      <button id="galleryClose" aria-label="돌아가기">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+      </button>
       <span class="title">앨범</span>
       <span id="photoCount"></span>
     </div>
