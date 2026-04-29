@@ -2646,21 +2646,34 @@ function buildStyleCheckPrompt(tone, context) {
   ].join('\n');
 }
 
-// 분석 전송용 이미지 처리.
-// v3.11.3 변경: 사이즈 무관하게 **항상 canvas로 재인코딩**해서 IndexedDB와 분리된 새 blob을 반환.
-// 이유: 768px 이하인 사진은 이전 버전에서 다운스케일 skip하고 IndexedDB blob을 그대로 전송했는데,
-// iOS Safari에서 같은 IndexedDB blob을 두 번째 사용 시 backing store가 detach되어
-// `blobToBase64`의 모든 fallback이 "The object can not be found here." 에러로 실패.
-// canvas.toBlob 결과는 IndexedDB와 무관한 fresh blob이라 detach 영향 0.
+// 분석 전송용 이미지 처리. v3.11.6에서 **detach 회피 단계 추가**.
+// 핵심: iOS Safari는 같은 IndexedDB blob을 두 번째 사용할 때 backing store가 detach되어
+// arrayBuffer / Image / fetch / FileReader 모든 접근 경로를 차단. 그래서 blob 자체에서
+// 데이터를 빼낼 수가 없음. 첫 사용 시점에 즉시 ArrayBuffer로 메모리 복사하고 그걸로 새 Blob을
+// 만들면 IndexedDB와 완전히 분리되어 detach 영향 0.
+//
+// 단, arrayBuffer() 자체가 detach 영향을 받는다는 보고도 있어 그 단계 실패 시 명확히 throw해서
+// 디버그 진단에서 stage='downscale'로 잡히도록 함 (silent fallback 제거).
 async function downscaleImageBlob(blob, maxDim, quality) {
   if (!maxDim) maxDim = 768;
   if (!quality) quality = 0.85;
-  const url = URL.createObjectURL(blob);
+
+  // 1단계: blob을 즉시 ArrayBuffer로 복사 → 새 Blob 생성 (detach 회피)
+  let safeBlob;
+  try {
+    const buf = await blob.arrayBuffer();
+    safeBlob = new Blob([buf], { type: blob.type || 'image/jpeg' });
+  } catch (e) {
+    throw new Error('blob 메모리 복사 실패 (arrayBuffer): ' + (e && e.message));
+  }
+
+  // 2단계: 새 Blob을 Image로 디코딩 → canvas로 재인코딩
+  const url = URL.createObjectURL(safeBlob);
   try {
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('이미지 로드 실패'));
+      i.onerror = () => reject(new Error('이미지 디코딩 실패'));
       i.src = url;
     });
     const w0 = img.naturalWidth || img.width;
@@ -2681,15 +2694,12 @@ async function downscaleImageBlob(blob, maxDim, quality) {
     canvas.getContext('2d').drawImage(img, 0, 0, w, h);
     const out = await new Promise((resolve, reject) => {
       canvas.toBlob(
-        (b) => b ? resolve(b) : reject(new Error('canvas.toBlob 결과 null')),
+        (b) => b ? resolve(b) : reject(new Error('canvas.toBlob null')),
         'image/jpeg',
         quality
       );
     });
     return out;
-  } catch (e) {
-    console.warn('[MyStyle] 재인코딩 실패, 원본 fallback:', e && e.message);
-    return blob; // 최후 fallback — detach 위험 있음
   } finally {
     try { URL.revokeObjectURL(url); } catch (_) {}
   }

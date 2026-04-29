@@ -83,6 +83,15 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 60. v3.11.6 — IndexedDB blob detach 추가 회피 (arrayBuffer 우회 단계 도입)
+**프롬프트**: "피규어 사진으로 테스트하긴했는데 아직도 같은사진 재검사시에 [디버그] The object can not be found here. [orig 68344B / sent 68344B] 에러 발생"
+**수정 파일**: `docs/app.js`
+**진단**: v3.11.3에서 'canvas 항상 거치게' 픽스했지만 사용자 진단(orig=sent=68344B)으로 catch 분기 탔다는 게 명확. 즉 **canvas 단계 진입 전 Image 로드 자체가 실패** → silent fallback `return blob` → 원본 그대로 후속 단계 → blobToBase64도 같은 detach 영향으로 실패 → "object can not be found here". 첫 분석은 IndexedDB가 record를 막 읽어서 detach 안 된 fresh blob을 줌. 두 번째 호출에선 같은 record의 캐시된(detach된) blob 반환 — Image 로드 / arrayBuffer / fetch / FileReader 모든 접근이 차단됨.
+**픽스 (두 단계)**:
+1. **detach 회피 — arrayBuffer 우회 단계 도입**: `downscaleImageBlob` 진입 직후 `blob.arrayBuffer()`로 즉시 메모리 복사 → `new Blob([buf], {type})`로 새 Blob 생성. ArrayBuffer는 IndexedDB와 완전 분리된 메모리 버퍼라 detach 영향 0. 그 새 Blob을 후속 Image 디코딩·canvas 재인코딩에 사용.
+2. **silent fallback 제거**: catch에서 `return blob`(원본) 대신 명확히 throw. 다운스케일 실패 시 즉시 stage='downscale'에서 잡혀 디버그 토스트에 진짜 에러 노출.
+**예상 결과**: 첫 사용·재사용 모두 안전. 만약 arrayBuffer() 자체가 detach 차단되면 즉시 *"blob 메모리 복사 실패 (arrayBuffer): ..."* 명시 에러로 stage='downscale' 잡힘 → 다음 사이클 진단 가능.
+
 ### 59. v3.11.5 — 테스트 모드 (사람 인식 검증 우회)
 **프롬프트**: "설정에서 테스트용 실사용 으로 토글 나눈다음에 테스트용일때는 카메라 찍을때 사람인식 안하고 / 패치한번할때마다 화장실 왔다갔다하기 너무힘들어서"
 **수정 파일**: `docs/index.html`, `docs/app.js`
