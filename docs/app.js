@@ -2696,13 +2696,15 @@ async function callGeminiVisionWithRetry(apiKey, blob, context, tone, onRetry) {
     } catch (err) {
       lastErr = err;
       const msg = (err && err.message) ? err.message : '';
+      // "object can not be found here"는 schema 처리 에러라 재시도해도 같은 결과 →
+      // v3.11.1에서 response_schema 자체를 빼서 원인을 제거했음. 그래도 다시 발생하면
+      // 즉시 실패해서 사용자가 빠르게 인지하도록 retryable에서 제외 (5번 도는 게 더 짜증).
       const isRetryable =
         msg.indexOf('503') >= 0 ||
         msg.indexOf('502') >= 0 ||
         msg.indexOf('overload') >= 0 ||
         msg.indexOf('UNAVAILABLE') >= 0 ||
-        msg.indexOf('응답 파싱 실패') >= 0 ||  // Gemini가 간헐적으로 JSON 깨뜨리는 케이스도 자동 재시도
-        msg.indexOf('object can not be found') >= 0 ||  // 재검사 시 간헐적으로 발생하는 schema 처리 에러
+        msg.indexOf('응답 파싱 실패') >= 0 ||  // Gemini가 간헐적으로 JSON 깨뜨리는 케이스
         msg.indexOf('INTERNAL') >= 0 ||
         msg.indexOf('500') >= 0;
       if (!isRetryable) throw err;
@@ -2716,46 +2718,12 @@ async function callGeminiVisionWithRetry(apiKey, blob, context, tone, onRetry) {
 
 async function callGeminiVision(apiKey, blob, context, tone) {
   const b64 = await blobToBase64(blob);
-  // Gemini는 구식 OpenAPI 서브셋만 안정적으로 지원. 한국어 enum과 부분 required 조합에서
-  // "The object can not be found here" 에러가 나는 케이스가 있어 스키마를 단순화하고
-  // 값 제약은 프롬프트 + 파싱 단계 정규화로 유도한다.
-  const responseSchema = {
-    type: 'object',
-    properties: {
-      score:             { type: 'integer' },
-      vibe:              { type: 'string' },
-      colorBalance:      { type: 'string' },
-      silhouetteBalance: { type: 'string' },
-      comment:           { type: 'string' },
-      suggestion:        { type: 'string' },
-      contextFit:        { type: 'string' },
-      tags: {
-        type: 'object',
-        properties: {
-          top:       { type: 'string' },
-          bottom:    { type: 'string' },
-          shoes:     { type: 'string' },
-          outer:     { type: 'string' },
-          accessory: { type: 'string' },
-        },
-        required: ['top', 'bottom', 'shoes', 'outer', 'accessory'],
-      },
-      brandGuess: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            item:       { type: 'string' },
-            brand:      { type: 'string' },
-            tier:       { type: 'string' },
-            confidence: { type: 'string' },
-          },
-          required: ['item', 'brand', 'tier', 'confidence'],
-        },
-      },
-    },
-    required: ['score', 'vibe', 'colorBalance', 'silhouetteBalance', 'comment', 'suggestion', 'contextFit', 'tags', 'brandGuess'],
-  };
+  // v3.11.1: response_schema 자체를 제거. Gemini의 OpenAPI 서브셋이 nested object/array
+  // (특히 우리 schema의 tags + brandGuess.items 두 단계 nesting + required 조합)에서
+  // 간헐적으로 "The object can not be found here"를 던지는 게 확인됨 — schema가 같으면
+  // 재시도해도 같은 에러라 retry는 무의미했음. 대신 response_mime_type만 남기고 형식은
+  // 프롬프트의 [예시 응답]으로 강제. parseStyleCheckJson()이 누락 필드를 안전하게
+  // 기본값으로 채워주므로 데이터 모델은 그대로 유지된다.
   const prompt = buildStyleCheckPrompt(tone || 'balanced', context || '');
   const body = {
     contents: [{
@@ -2766,7 +2734,6 @@ async function callGeminiVision(apiKey, blob, context, tone) {
     }],
     generationConfig: {
       response_mime_type: 'application/json',
-      response_schema: responseSchema,
       temperature: 0.5,
       maxOutputTokens: 1400,
     },
@@ -2964,6 +2931,8 @@ async function runStyleCheck(contextStr) {
       toast('모델 혼잡. 잠시 후 다시 시도해 주세요', 4500);
     } else if (msg.indexOf('파싱') >= 0) {
       toast('응답이 깨져 재시도가 필요해요', 4500);
+    } else if (msg.indexOf('object can not be found') >= 0) {
+      toast('AI 응답 형식 오류 — 잠시 후 다시 시도해 주세요', 4500);
     } else {
       toast('분석 실패: ' + msg.slice(0, 140), 5000);
     }

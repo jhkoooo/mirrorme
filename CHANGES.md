@@ -83,6 +83,16 @@
 **생성 파일**: `CHANGES.md` (이 문서)
 **내용**: 과거 모든 코드 수정 프롬프트 소급 정리 + 향후 자동 업데이트 규칙 메모리 등록.
 
+### 55. v3.11.1 — "The object can not be found here" schema 에러 근본 픽스
+**프롬프트**: "본인사진으로 표시 뜬 상태에서 분석돌리는순간 모델 혼잡 5/5 까지 돌고 분석 실패 / 재분석시에 여전히 혼잡 5/5 까지 돌고 분석 실패 발생"
+**수정 파일**: `docs/app.js`
+**증상**: 분석을 돌리면 "모델 혼잡으로 재시도 중 5/5"까지 돈 뒤 `분석 실패: The object can not be found here.` 발생. v3.11에서 retryable에 추가했더니 같은 에러가 5번 돌고 실패해 사용자 경험만 더 나빠짐.
+**근본 원인**: 이 에러는 모델 혼잡(503)이 아니라 **Gemini의 OpenAPI schema 처리기 에러**. 우리 `responseSchema`가 nested object 두 단계(`tags` object + `brandGuess.items` object) + 각 단계의 `required` 조합으로 들어가는데, `gemini-2.5-flash`가 이 조합을 간헐적으로 못 풀어서 던지는 에러. **schema가 같으면 재시도해도 같은 에러** → retry 무의미.
+**픽스**:
+- **`response_schema` 자체 제거** — `response_mime_type: 'application/json'`만 유지. 출력 형식은 프롬프트의 `[예시 응답]` 블록으로 강제. `parseStyleCheckJson()`이 이미 모든 필드 누락에 강건하게 짜여 있어 데이터 무결성 OK.
+- **retryable 패턴에서 `object can not be found` 제거** — schema 빼서 원인 제거됐고, 만약 또 발생하면 5번 도는 것보다 빠르게 실패하는 게 사용자 친화적.
+- **명확한 에러 토스트** — 발생 시 *"AI 응답 형식 오류 — 잠시 후 다시 시도해 주세요"*.
+
 ### 54. v3.11 — 나의 스타일 리포트 + 다른 사람 사진 마킹 + 검사 race 픽스
 **프롬프트**: "트렌드분석 얘기해보자 / 개인트렌드 부터 진행 / 다른 사람도 찍을 수 있는데 / 분석 횟수 정의는 / 분석 중 스와이프 race / 다 추천대로 진행"
 **수정 파일**: `docs/index.html`, `docs/app.js`
